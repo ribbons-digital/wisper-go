@@ -367,7 +367,7 @@ fn rewrite_command_carries_style() {
 Run:
 
 ```bash
-cargo test -p wispergo-core domain_tests
+cargo test -p wispergo-core --test domain_tests
 ```
 
 Expected: FAIL because `wispergo-core` does not exist yet.
@@ -595,7 +595,7 @@ export type PipelineResult =
 Run:
 
 ```bash
-cargo test -p wispergo-core domain_tests
+cargo test -p wispergo-core --test domain_tests
 ```
 
 Expected: PASS.
@@ -683,7 +683,7 @@ fn history_and_audio_defaults_are_private() {
 Run:
 
 ```bash
-cargo test -p wispergo-core privacy_tests
+cargo test -p wispergo-core --test privacy_tests
 ```
 
 Expected: FAIL because `privacy` is not implemented.
@@ -810,7 +810,7 @@ impl PrivacyPolicyEngine {
 Run:
 
 ```bash
-cargo test -p wispergo-core privacy_tests
+cargo test -p wispergo-core --test privacy_tests
 ```
 
 Expected: PASS.
@@ -925,7 +925,7 @@ fn ordinary_sentence_remains_dictation() {
 Run:
 
 ```bash
-cargo test -p wispergo-core intent_tests
+cargo test -p wispergo-core --test intent_tests
 ```
 
 Expected: FAIL because `intent` is not implemented.
@@ -1042,7 +1042,7 @@ fn command(command: CommandAction, requires_confirmation: bool) -> IntentParse {
 Run:
 
 ```bash
-cargo test -p wispergo-core intent_tests
+cargo test -p wispergo-core --test intent_tests
 ```
 
 Expected: PASS.
@@ -1149,7 +1149,7 @@ async fn fake_providers_record_call_counts() {
 Run:
 
 ```bash
-cargo test -p wispergo-core provider_tests
+cargo test -p wispergo-core --test provider_tests
 ```
 
 Expected: FAIL because provider contracts are not implemented.
@@ -1286,7 +1286,7 @@ impl CleanupProvider for FakeCleanupProvider {
 Run:
 
 ```bash
-cargo test -p wispergo-core provider_tests
+cargo test -p wispergo-core --test provider_tests
 ```
 
 Expected: PASS.
@@ -1377,7 +1377,7 @@ fn automatic_cloud_respects_app_deny_list() {
 Run:
 
 ```bash
-cargo test -p wispergo-core fallback_tests
+cargo test -p wispergo-core --test fallback_tests
 ```
 
 Expected: FAIL because fallback decisions are not implemented.
@@ -1463,7 +1463,7 @@ impl FallbackEngine {
 Run:
 
 ```bash
-cargo test -p wispergo-core fallback_tests
+cargo test -p wispergo-core --test fallback_tests
 ```
 
 Expected: PASS.
@@ -1526,7 +1526,7 @@ fn custom_threshold_changes_trim_boundary() {
 Run:
 
 ```bash
-cargo test -p wispergo-core audio_tests
+cargo test -p wispergo-core --test audio_tests
 ```
 
 Expected: FAIL because audio helpers are not implemented.
@@ -1580,7 +1580,7 @@ pub fn trim_silence(samples: &[f32], config: VadConfig) -> Vec<f32> {
 Run:
 
 ```bash
-cargo test -p wispergo-core audio_tests
+cargo test -p wispergo-core --test audio_tests
 ```
 
 Expected: PASS.
@@ -1648,7 +1648,7 @@ fn history_respects_enabled_flag_at_call_site() {
 Run:
 
 ```bash
-cargo test -p wispergo-core store_tests
+cargo test -p wispergo-core --test store_tests
 ```
 
 Expected: FAIL because `store` is not implemented.
@@ -1793,7 +1793,7 @@ fn now() -> Result<i64, StoreError> {
 Run:
 
 ```bash
-cargo test -p wispergo-core store_tests
+cargo test -p wispergo-core --test store_tests
 ```
 
 Expected: PASS.
@@ -1941,7 +1941,7 @@ async fn calls_ollama_chat_api_and_parses_json_content() {
 Run:
 
 ```bash
-cargo test -p wispergo-core ollama_tests
+cargo test -p wispergo-core --test ollama_tests
 ```
 
 Expected: FAIL because Ollama provider is not implemented.
@@ -2078,7 +2078,7 @@ struct OllamaResponseMessage {
 Run:
 
 ```bash
-cargo test -p wispergo-core ollama_tests
+cargo test -p wispergo-core --test ollama_tests
 ```
 
 Expected: PASS.
@@ -2148,7 +2148,7 @@ async fn sidecar_provider_invokes_configured_binary() {
 Run:
 
 ```bash
-cargo test -p wispergo-core whisper_sidecar_tests
+cargo test -p wispergo-core --test whisper_sidecar_tests
 ```
 
 Expected: FAIL because the sidecar adapter is not implemented.
@@ -2241,7 +2241,7 @@ pub fn parse_whisper_output(output: &str) -> Result<String, ProviderError> {
 Run:
 
 ```bash
-cargo test -p wispergo-core whisper_sidecar_tests
+cargo test -p wispergo-core --test whisper_sidecar_tests
 ```
 
 Expected: PASS.
@@ -2392,7 +2392,7 @@ async fn cleanup_timeout_inserts_raw_asr_for_plain_dictation() {
 Run:
 
 ```bash
-cargo test -p wispergo-core pipeline_tests
+cargo test -p wispergo-core --test pipeline_tests
 ```
 
 Expected: FAIL because pipeline orchestration is not implemented.
@@ -2509,7 +2509,7 @@ where
 Run:
 
 ```bash
-cargo test -p wispergo-core pipeline_tests
+cargo test -p wispergo-core --test pipeline_tests
 ```
 
 Expected: PASS.

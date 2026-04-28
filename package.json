@@ -1,0 +1,15 @@
+{
+  "name": "wispergo",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "desktop:dev": "pnpm --dir apps/desktop tauri dev",
+    "desktop:build": "pnpm --dir apps/desktop tauri build",
+    "test": "cargo test --workspace",
+    "test:ts": "pnpm --dir apps/desktop test",
+    "test:rust": "cargo test --workspace"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

@@ -6,3 +6,4 @@ pub mod ollama;
 pub mod privacy;
 pub mod providers;
 pub mod store;
+pub mod whisper_sidecar;

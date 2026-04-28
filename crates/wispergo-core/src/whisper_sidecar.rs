@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::PathBuf;
 
 use async_trait::async_trait;
@@ -23,12 +24,14 @@ impl WhisperSidecarProvider {
 
 #[async_trait]
 impl AsrProvider for WhisperSidecarProvider {
-    async fn transcribe(&self, _audio: Vec<f32>) -> Result<AsrOutput, ProviderError> {
+    async fn transcribe(&self, audio: Vec<f32>) -> Result<AsrOutput, ProviderError> {
+        let wav = write_temp_wav(&audio)?;
         let mut command = Command::new(&self.binary_path);
 
         if let Some(model_path) = &self.model_path {
             command.arg("--model").arg(model_path);
         }
+        command.arg("--file").arg(wav.path());
 
         let output = command
             .output()
@@ -52,6 +55,62 @@ impl AsrProvider for WhisperSidecarProvider {
             source: ProviderSource::Local,
         })
     }
+}
+
+fn write_temp_wav(samples: &[f32]) -> Result<tempfile::NamedTempFile, ProviderError> {
+    if samples.is_empty() {
+        return Err(ProviderError::InvalidOutput {
+            provider: "whisper_sidecar".to_string(),
+            message: "empty audio".to_string(),
+        });
+    }
+
+    let mut file = tempfile::Builder::new()
+        .prefix("wispergo-")
+        .suffix(".wav")
+        .tempfile()
+        .map_err(|err| ProviderError::Failed {
+            provider: "whisper_sidecar".to_string(),
+            message: err.to_string(),
+        })?;
+
+    write_wav_16khz_mono(file.as_file_mut(), samples).map_err(|err| ProviderError::Failed {
+        provider: "whisper_sidecar".to_string(),
+        message: err.to_string(),
+    })?;
+
+    Ok(file)
+}
+
+fn write_wav_16khz_mono(writer: &mut impl Write, samples: &[f32]) -> std::io::Result<()> {
+    const SAMPLE_RATE: u32 = 16_000;
+    const CHANNELS: u16 = 1;
+    const BITS_PER_SAMPLE: u16 = 16;
+    const BYTES_PER_SAMPLE: u16 = BITS_PER_SAMPLE / 8;
+
+    let data_len = samples.len() as u32 * u32::from(BYTES_PER_SAMPLE);
+    writer.write_all(b"RIFF")?;
+    writer.write_all(&(36 + data_len).to_le_bytes())?;
+    writer.write_all(b"WAVE")?;
+    writer.write_all(b"fmt ")?;
+    writer.write_all(&16u32.to_le_bytes())?;
+    writer.write_all(&1u16.to_le_bytes())?;
+    writer.write_all(&CHANNELS.to_le_bytes())?;
+    writer.write_all(&SAMPLE_RATE.to_le_bytes())?;
+    writer.write_all(
+        &(SAMPLE_RATE * u32::from(CHANNELS) * u32::from(BYTES_PER_SAMPLE)).to_le_bytes(),
+    )?;
+    writer.write_all(&(CHANNELS * BYTES_PER_SAMPLE).to_le_bytes())?;
+    writer.write_all(&BITS_PER_SAMPLE.to_le_bytes())?;
+    writer.write_all(b"data")?;
+    writer.write_all(&data_len.to_le_bytes())?;
+
+    for sample in samples {
+        let pcm = (sample.clamp(-1.0, 1.0) * f32::from(i16::MAX)).round() as i16;
+        writer.write_all(&pcm.to_le_bytes())?;
+    }
+
+    writer.flush()
 }
 
 pub fn parse_whisper_output(output: &str) -> Result<String, ProviderError> {

@@ -308,6 +308,10 @@ Focus tests on high-risk boundaries:
 - History, corrections, and dictionary are stored locally.
 - Dictated audio is not stored by default.
 
+## Implementation Notes
+
+The first implementation uses fake providers for the UI path and contract tests for local providers. Real microphone capture, packaged whisper.cpp binaries/models, deeper macOS context collection, and native paste automation are integration milestones after the foundation is verified.
+
 ## References
 
 - Wispr Flow official site: https://wisprflow.ai/

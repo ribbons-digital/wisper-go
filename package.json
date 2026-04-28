@@ -5,8 +5,8 @@
   "scripts": {
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
     "desktop:build": "pnpm --dir apps/desktop tauri build",
-    "test": "cargo test --workspace",
-    "test:ts": "pnpm --dir apps/desktop test",
+    "test": "pnpm --dir apps/desktop test -- --run && cargo test --workspace",
+    "test:ts": "pnpm --dir apps/desktop test -- --run",
     "test:rust": "cargo test --workspace"
   },
   "devDependencies": {

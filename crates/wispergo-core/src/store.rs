@@ -6,8 +6,7 @@ use thiserror::Error;
 use crate::privacy::PrivacyPolicy;
 
 const PRIVACY_POLICY_KEY: &str = "privacy_policy";
-const MIGRATION: &str =
-    include_str!("../../../apps/desktop/src-tauri/migrations/0001_initial.sql");
+const MIGRATION: &str = include_str!("../migrations/0001_initial.sql");
 
 #[derive(Debug, Error)]
 pub enum StoreError {

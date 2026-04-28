@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use crate::domain::{ActiveContext, CommandSource, PipelineResult, ProviderSource};
+use crate::domain::{ActiveContext, CommandSource, PipelineResult};
 use crate::intent::{IntentEngine, IntentParse};
-use crate::privacy::PrivacyPolicy;
+use crate::privacy::{ContextKind, PrivacyPolicy, PrivacyPolicyEngine};
 use crate::providers::{AsrProvider, CleanupInput, CleanupProvider, ProviderError};
 
 #[derive(Debug, Clone)]
@@ -20,7 +20,7 @@ where
     asr: A,
     cleanup: C,
     intent: IntentEngine,
-    _policy: PrivacyPolicy,
+    privacy: PrivacyPolicyEngine,
 }
 
 impl<A, C> Pipeline<A, C>
@@ -33,7 +33,7 @@ where
             asr,
             cleanup,
             intent: IntentEngine,
-            _policy: policy,
+            privacy: PrivacyPolicyEngine::new(policy),
         }
     }
 
@@ -58,20 +58,29 @@ where
                 source: CommandSource::Rules,
             },
             IntentParse::Dictation { text } => {
+                let selected_text = if self
+                    .privacy
+                    .can_collect_context(&input.context.app_id, ContextKind::SelectedText)
+                {
+                    input.context.selected_text
+                } else {
+                    None
+                };
+
                 let cleanup_result = self
                     .cleanup
                     .clean(CleanupInput {
                         transcript: text.clone(),
-                        selected_text: input.context.selected_text,
+                        selected_text,
                         timeout: input.cleanup_timeout,
                     })
                     .await;
 
                 match cleanup_result {
-                    Ok(output) => output.result,
+                    Ok(output) => enforce_command_confirmation(output.result),
                     Err(ProviderError::Timeout { .. }) => PipelineResult::InsertText {
                         text,
-                        source: ProviderSource::Local,
+                        source: asr.source,
                         confidence: asr.confidence,
                     },
                     Err(err) => PipelineResult::Error {
@@ -81,5 +90,23 @@ where
                 }
             }
         }
+    }
+}
+
+fn enforce_command_confirmation(result: PipelineResult) -> PipelineResult {
+    match result {
+        PipelineResult::Command {
+            command,
+            requires_confirmation,
+            source,
+        } => {
+            let requires_confirmation = requires_confirmation || command.is_destructive();
+            PipelineResult::Command {
+                command,
+                requires_confirmation,
+                source,
+            }
+        }
+        result => result,
     }
 }

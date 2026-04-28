@@ -27,6 +27,18 @@ fn literal_mode_keeps_command_words_as_text() {
 }
 
 #[test]
+fn literal_mode_preserves_case_and_punctuation() {
+    let result = IntentEngine::default().parse_rule("literal Call API v2.0!");
+
+    assert_eq!(
+        result,
+        IntentParse::Dictation {
+            text: "Call API v2.0!".to_string()
+        }
+    );
+}
+
+#[test]
 fn destructive_delete_requires_confirmation() {
     let result = IntentEngine::default().parse_rule("delete that");
 

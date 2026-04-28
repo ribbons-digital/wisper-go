@@ -17,13 +17,13 @@ pub struct IntentEngine;
 impl IntentEngine {
     pub fn parse_rule(&self, transcript: &str) -> IntentParse {
         let trimmed = transcript.trim();
-        let normalized = normalize(trimmed);
-
-        if let Some(rest) = normalized.strip_prefix("literal ") {
+        if let Some(rest) = literal_rest(trimmed) {
             return IntentParse::Dictation {
                 text: rest.to_string(),
             };
         }
+
+        let normalized = normalize(trimmed);
 
         match normalized.as_str() {
             "new line" => command(CommandAction::NewLine, false),
@@ -82,6 +82,15 @@ fn normalize(input: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn literal_rest(input: &str) -> Option<&str> {
+    let prefix = input.get(..8)?;
+    if prefix.eq_ignore_ascii_case("literal ") {
+        input.get(8..)
+    } else {
+        None
+    }
 }
 
 fn command(command: CommandAction, requires_confirmation: bool) -> IntentParse {

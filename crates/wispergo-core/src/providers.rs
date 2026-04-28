@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{PipelineResult, ProviderSource};
 
+/// ASR providers receive mono normalized `f32` PCM samples at this sample rate.
+pub const ASR_INPUT_SAMPLE_RATE_HZ: u32 = 16_000;
+
+/// ASR providers receive a single mono channel.
+pub const ASR_INPUT_CHANNELS: u16 = 1;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AsrOutput {
     pub transcript: String,
@@ -90,6 +96,7 @@ impl ProviderError {
 
 #[async_trait]
 pub trait AsrProvider: Send + Sync {
+    /// Transcribes normalized mono PCM samples using the core ASR input contract.
     async fn transcribe(&self, audio: Vec<f32>) -> Result<AsrOutput, ProviderError>;
 }
 

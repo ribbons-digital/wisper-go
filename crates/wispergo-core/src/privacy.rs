@@ -70,7 +70,12 @@ impl PrivacyPolicyEngine {
     }
 
     pub fn can_use_cloud(&self, app_id: &str, _provider: ProviderKind) -> bool {
-        if self.policy.cloud_disabled_apps.iter().any(|id| id == app_id) {
+        if self
+            .policy
+            .cloud_disabled_apps
+            .iter()
+            .any(|id| id == app_id)
+        {
             return false;
         }
 

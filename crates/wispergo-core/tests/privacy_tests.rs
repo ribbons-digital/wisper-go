@@ -35,14 +35,8 @@ fn context_disabled_for_app_blocks_selected_and_nearby_text() {
     };
     let engine = PrivacyPolicyEngine::new(policy);
 
-    assert!(!engine.can_collect_context(
-        "com.company.SecretApp",
-        ContextKind::SelectedText
-    ));
-    assert!(!engine.can_collect_context(
-        "com.company.SecretApp",
-        ContextKind::NearbyText
-    ));
+    assert!(!engine.can_collect_context("com.company.SecretApp", ContextKind::SelectedText));
+    assert!(!engine.can_collect_context("com.company.SecretApp", ContextKind::NearbyText));
     assert!(engine.can_collect_context("com.apple.Notes", ContextKind::ActiveApp));
 }
 

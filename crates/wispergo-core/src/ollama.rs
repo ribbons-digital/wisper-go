@@ -56,16 +56,16 @@ impl OllamaCleanupProvider {
         request: OllamaChatRequest,
     ) -> Result<OllamaChatResponse, ProviderError> {
         let url = format!("{}/api/chat", self.base_url);
-        let response =
-            self.client
-                .post(url)
-                .json(&request)
-                .send()
-                .await
-                .map_err(|err| ProviderError::Unavailable {
-                    provider: "ollama".to_string(),
-                    message: Some(err.to_string()),
-                })?;
+        let response = self
+            .client
+            .post(url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|err| ProviderError::Unavailable {
+                provider: "ollama".to_string(),
+                message: Some(err.to_string()),
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -86,11 +86,12 @@ impl OllamaCleanupProvider {
 }
 
 pub fn parse_cleanup_json(input: &str) -> Result<CleanupOutput, ProviderError> {
-    let mut output =
-        serde_json::from_str::<CleanupOutput>(input).map_err(|err| ProviderError::InvalidOutput {
+    let mut output = serde_json::from_str::<CleanupOutput>(input).map_err(|err| {
+        ProviderError::InvalidOutput {
             provider: "ollama".to_string(),
             message: err.to_string(),
-        })?;
+        }
+    })?;
 
     if let PipelineResult::Command {
         command,

@@ -15,7 +15,10 @@ async fn fake_asr_returns_configured_transcript() {
         source: ProviderSource::Local,
     }));
 
-    let result = provider.transcribe(vec![0.0, 0.1]).await.expect("asr output");
+    let result = provider
+        .transcribe(vec![0.0, 0.1])
+        .await
+        .expect("asr output");
 
     assert_eq!(result.transcript, "hello world");
     assert_eq!(result.source, ProviderSource::Local);

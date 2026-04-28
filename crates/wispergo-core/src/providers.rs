@@ -31,9 +31,17 @@ pub enum ProviderError {
         provider: String,
         message: Option<String>,
     },
-    Timeout { provider: String },
-    InvalidOutput { provider: String, message: String },
-    Failed { provider: String, message: String },
+    Timeout {
+        provider: String,
+    },
+    InvalidOutput {
+        provider: String,
+        message: String,
+    },
+    Failed {
+        provider: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for ProviderError {
@@ -48,7 +56,10 @@ impl std::fmt::Display for ProviderError {
                 )
             }
             Self::Failed { provider, .. } => {
-                write!(formatter, "{provider} failed; diagnostic details are redacted")
+                write!(
+                    formatter,
+                    "{provider} failed; diagnostic details are redacted"
+                )
             }
         }
     }

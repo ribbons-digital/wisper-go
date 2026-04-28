@@ -57,6 +57,20 @@ async fn provider_errors_distinguish_timeout_and_unavailable() {
 }
 
 #[tokio::test]
+async fn provider_error_display_redacts_raw_diagnostics() {
+    let error = ProviderError::InvalidOutput {
+        provider: "ollama".to_string(),
+        message: "transcript: secret words".to_string(),
+    };
+
+    assert_eq!(
+        error.to_string(),
+        "ollama returned invalid output; diagnostic details are redacted"
+    );
+    assert_eq!(error.diagnostic_message(), Some("transcript: secret words"));
+}
+
+#[tokio::test]
 async fn fake_providers_record_call_counts() {
     let calls = Arc::new(Mutex::new(0));
     let provider = FakeAsrProvider::with_counter(

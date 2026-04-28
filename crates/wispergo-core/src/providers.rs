@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 use crate::domain::{PipelineResult, ProviderSource};
 
@@ -26,17 +25,33 @@ pub struct CleanupOutput {
     pub result: PipelineResult,
 }
 
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderError {
-    #[error("{provider} is unavailable")]
     Unavailable { provider: String },
-    #[error("{provider} timed out")]
     Timeout { provider: String },
-    #[error("{provider} returned invalid output: {message}")]
     InvalidOutput { provider: String, message: String },
-    #[error("{provider} failed: {message}")]
     Failed { provider: String, message: String },
 }
+
+impl std::fmt::Display for ProviderError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unavailable { provider } => write!(formatter, "{provider} is unavailable"),
+            Self::Timeout { provider } => write!(formatter, "{provider} timed out"),
+            Self::InvalidOutput { provider, .. } => {
+                write!(
+                    formatter,
+                    "{provider} returned invalid output; diagnostic details are redacted"
+                )
+            }
+            Self::Failed { provider, .. } => {
+                write!(formatter, "{provider} failed; diagnostic details are redacted")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ProviderError {}
 
 impl ProviderError {
     pub fn is_recoverable(&self) -> bool {
@@ -44,6 +59,13 @@ impl ProviderError {
             self,
             Self::Unavailable { .. } | Self::Timeout { .. } | Self::InvalidOutput { .. }
         )
+    }
+
+    pub fn diagnostic_message(&self) -> Option<&str> {
+        match self {
+            Self::InvalidOutput { message, .. } | Self::Failed { message, .. } => Some(message),
+            Self::Unavailable { .. } | Self::Timeout { .. } => None,
+        }
     }
 }
 

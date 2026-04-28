@@ -1,0 +1,8 @@
+{
+  "result": {
+    "kind": "insert_text",
+    "text": "Hello, world.",
+    "source": "local",
+    "confidence": 0.91
+  }
+}

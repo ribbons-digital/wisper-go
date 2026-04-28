@@ -1,0 +1,11 @@
+{
+  "result": {
+    "kind": "command",
+    "command": {
+      "kind": "rewrite_selection",
+      "style": "professional"
+    },
+    "requires_confirmation": false,
+    "source": "local_llm"
+  }
+}

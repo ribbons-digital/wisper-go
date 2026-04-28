@@ -1,0 +1,10 @@
+{
+  "result": {
+    "kind": "command",
+    "command": {
+      "kind": "send_message"
+    },
+    "requires_confirmation": false,
+    "source": "local_llm"
+  }
+}

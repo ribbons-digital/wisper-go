@@ -9,11 +9,11 @@ fn trims_leading_and_trailing_silence() {
 }
 
 #[test]
-fn keeps_audio_when_every_sample_is_below_threshold() {
+fn returns_empty_audio_when_every_sample_is_below_threshold() {
     let input = vec![0.0, 0.001, 0.002];
     let output = trim_silence(&input, VadConfig::default());
 
-    assert_eq!(output, input);
+    assert!(output.is_empty());
 }
 
 #[test]

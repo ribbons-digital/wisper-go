@@ -21,6 +21,6 @@ pub fn trim_silence(samples: &[f32], config: VadConfig) -> Vec<f32> {
 
     match (first, last) {
         (Some(start), Some(end)) if start <= end => samples[start..=end].to_vec(),
-        _ => samples.to_vec(),
+        _ => Vec::new(),
     }
 }

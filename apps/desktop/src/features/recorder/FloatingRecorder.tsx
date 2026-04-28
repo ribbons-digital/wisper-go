@@ -5,6 +5,7 @@ type RecordingStatus = "idle" | "recording";
 type Props = {
   status: RecordingStatus;
   mode: RecordingMode;
+  disabled?: boolean;
   onStart: (mode: RecordingMode) => void;
   onStop: (reason: string) => void;
   onCancel: (reason: string) => void;
@@ -13,6 +14,7 @@ type Props = {
 export function FloatingRecorder({
   status,
   mode,
+  disabled = false,
   onStart,
   onStop,
   onCancel,
@@ -25,6 +27,7 @@ export function FloatingRecorder({
       <button
         type="button"
         className="record-button"
+        disabled={disabled}
         aria-label={isRecording ? "Stop recording" : "Start recording"}
         onClick={() => {
           if (isRecording) {
@@ -36,7 +39,7 @@ export function FloatingRecorder({
       >
         {isRecording ? "Stop" : "Record"}
       </button>
-      <button type="button" onClick={() => onCancel("user_cancelled")}>
+      <button type="button" disabled={disabled} onClick={() => onCancel("user_cancelled")}>
         Cancel
       </button>
     </section>

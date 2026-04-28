@@ -65,6 +65,11 @@ button:hover {
   background: #f7f9fb;
 }
 
+button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
 .record-button {
   min-width: 96px;
   border-color: #1c6b5a;
@@ -75,6 +80,12 @@ button:hover {
 .record-button:hover {
   border-color: #145445;
   background: #145445;
+}
+
+.command-error {
+  margin: -4px 0 0;
+  color: #8f2424;
+  font-size: 0.92rem;
 }
 
 .settings-panel {

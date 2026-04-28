@@ -50,6 +50,7 @@ async fn provider_errors_distinguish_timeout_and_unavailable() {
     };
     let unavailable = ProviderError::Unavailable {
         provider: "ollama".to_string(),
+        message: None,
     };
 
     assert!(timeout.is_recoverable());

@@ -32,6 +32,7 @@ fn ask_before_cloud_returns_confirmation_decision() {
         provider_kind: ProviderKind::Cleanup,
         error: ProviderError::Unavailable {
             provider: "ollama".to_string(),
+            message: None,
         },
     });
 

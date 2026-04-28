@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::domain::PipelineResult;
 use crate::providers::{CleanupInput, CleanupOutput, CleanupProvider, ProviderError};
 
 #[derive(Debug, Clone)]
@@ -39,35 +40,70 @@ impl CleanupProvider for OllamaCleanupProvider {
             ],
         };
 
-        let url = format!("{}/api/chat", self.base_url);
-        let response =
-            tokio::time::timeout(input.timeout, self.client.post(url).json(&request).send())
-                .await
-                .map_err(|_| ProviderError::Timeout {
-                    provider: "ollama".to_string(),
-                })?
-                .map_err(|err| ProviderError::Unavailable {
-                    provider: format!("ollama: {err}"),
-                })?;
-
-        let body: OllamaChatResponse =
-            response
-                .json()
-                .await
-                .map_err(|err| ProviderError::InvalidOutput {
-                    provider: "ollama".to_string(),
-                    message: err.to_string(),
-                })?;
+        let body = tokio::time::timeout(input.timeout, self.send_chat(request))
+            .await
+            .map_err(|_| ProviderError::Timeout {
+                provider: "ollama".to_string(),
+            })??;
 
         parse_cleanup_json(&body.message.content)
     }
 }
 
+impl OllamaCleanupProvider {
+    async fn send_chat(
+        &self,
+        request: OllamaChatRequest,
+    ) -> Result<OllamaChatResponse, ProviderError> {
+        let url = format!("{}/api/chat", self.base_url);
+        let response =
+            self.client
+                .post(url)
+                .json(&request)
+                .send()
+                .await
+                .map_err(|err| ProviderError::Unavailable {
+                    provider: "ollama".to_string(),
+                    message: Some(err.to_string()),
+                })?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ProviderError::Failed {
+                provider: "ollama".to_string(),
+                message: format!("ollama returned HTTP status {status}"),
+            });
+        }
+
+        response
+            .json()
+            .await
+            .map_err(|err| ProviderError::InvalidOutput {
+                provider: "ollama".to_string(),
+                message: err.to_string(),
+            })
+    }
+}
+
 pub fn parse_cleanup_json(input: &str) -> Result<CleanupOutput, ProviderError> {
-    serde_json::from_str::<CleanupOutput>(input).map_err(|err| ProviderError::InvalidOutput {
-        provider: "ollama".to_string(),
-        message: err.to_string(),
-    })
+    let mut output =
+        serde_json::from_str::<CleanupOutput>(input).map_err(|err| ProviderError::InvalidOutput {
+            provider: "ollama".to_string(),
+            message: err.to_string(),
+        })?;
+
+    if let PipelineResult::Command {
+        command,
+        requires_confirmation,
+        ..
+    } = &mut output.result
+    {
+        if command.is_destructive() {
+            *requires_confirmation = true;
+        }
+    }
+
+    Ok(output)
 }
 
 fn cleanup_system_prompt() -> String {

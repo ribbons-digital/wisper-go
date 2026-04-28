@@ -27,7 +27,10 @@ pub struct CleanupOutput {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderError {
-    Unavailable { provider: String },
+    Unavailable {
+        provider: String,
+        message: Option<String>,
+    },
     Timeout { provider: String },
     InvalidOutput { provider: String, message: String },
     Failed { provider: String, message: String },
@@ -36,7 +39,7 @@ pub enum ProviderError {
 impl std::fmt::Display for ProviderError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Unavailable { provider } => write!(formatter, "{provider} is unavailable"),
+            Self::Unavailable { provider, .. } => write!(formatter, "{provider} is unavailable"),
             Self::Timeout { provider } => write!(formatter, "{provider} timed out"),
             Self::InvalidOutput { provider, .. } => {
                 write!(
@@ -63,8 +66,13 @@ impl ProviderError {
 
     pub fn diagnostic_message(&self) -> Option<&str> {
         match self {
-            Self::InvalidOutput { message, .. } | Self::Failed { message, .. } => Some(message),
-            Self::Unavailable { .. } | Self::Timeout { .. } => None,
+            Self::Unavailable {
+                message: Some(message),
+                ..
+            }
+            | Self::InvalidOutput { message, .. }
+            | Self::Failed { message, .. } => Some(message),
+            Self::Unavailable { message: None, .. } | Self::Timeout { .. } => None,
         }
     }
 }

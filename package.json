@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "scripts": {
     "desktop:dev": "pnpm --dir apps/desktop tauri dev",
-    "desktop:build": "pnpm --dir apps/desktop tauri build",
+    "desktop:build": "./scripts/ensure-local-codesign-cert.sh && pnpm --dir apps/desktop tauri build && ./scripts/sign-macos-app.sh",
+    "desktop:trust-cert": "./scripts/ensure-local-codesign-cert.sh && ./scripts/trust-local-codesign-cert.sh",
     "test": "pnpm --dir apps/desktop test && cargo test --workspace",
     "test:ts": "pnpm --dir apps/desktop test",
     "test:rust": "cargo test --workspace"

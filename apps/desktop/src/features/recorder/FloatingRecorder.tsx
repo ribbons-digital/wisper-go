@@ -1,47 +1,24 @@
-import type { RecordingMode } from "../../types/pipeline";
-
 type RecordingStatus = "idle" | "recording";
 
 type Props = {
   status: RecordingStatus;
-  mode: RecordingMode;
-  disabled?: boolean;
-  onStart: (mode: RecordingMode) => void;
-  onStop: (reason: string) => void;
-  onCancel: (reason: string) => void;
+  busy?: boolean;
 };
 
-export function FloatingRecorder({
-  status,
-  mode,
-  disabled = false,
-  onStart,
-  onStop,
-  onCancel,
-}: Props) {
+export function FloatingRecorder({ status, busy = false }: Props) {
   const isRecording = status === "recording";
 
   return (
     <section className="floating-recorder" aria-label="Recorder">
-      <div className="recording-status">{isRecording ? "Recording" : "Ready"}</div>
-      <button
-        type="button"
-        className="record-button"
-        disabled={disabled}
-        aria-label={isRecording ? "Stop recording" : "Start recording"}
-        onClick={() => {
-          if (isRecording) {
-            onStop("floating_button");
-          } else {
-            onStart(mode);
-          }
-        }}
-      >
-        {isRecording ? "Stop" : "Record"}
-      </button>
-      <button type="button" disabled={disabled} onClick={() => onCancel("user_cancelled")}>
-        Cancel
-      </button>
+      <div className="recording-dot" aria-hidden="true" />
+      <div className="recording-copy">
+        <div className="recording-status">
+          {busy && !isRecording ? "Processing" : isRecording ? "Recording" : "Ready"}
+        </div>
+        <div className="recording-hint">
+          {isRecording ? "release to insert" : "hold Command + Shift + Space"}
+        </div>
+      </div>
     </section>
   );
 }

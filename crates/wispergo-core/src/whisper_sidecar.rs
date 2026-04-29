@@ -45,6 +45,8 @@ impl AsrProvider for WhisperSidecarProvider {
         if let Some(model_path) = &self.model_path {
             command.arg("--model").arg(model_path);
         }
+        command.arg("--no-timestamps");
+        command.arg("--no-prints");
         command.arg("--file").arg(wav.path());
         command.kill_on_drop(true);
 
@@ -131,12 +133,49 @@ fn write_wav_16khz_mono(writer: &mut impl Write, samples: &[f32]) -> std::io::Re
 }
 
 pub fn parse_whisper_output(output: &str) -> Result<String, ProviderError> {
-    let transcript = output.trim().to_string();
+    let transcript = output
+        .lines()
+        .map(strip_timestamp_prefix)
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
     if transcript.is_empty() {
         return Err(ProviderError::InvalidOutput {
             provider: "whisper_sidecar".to_string(),
             message: "empty transcript".to_string(),
         });
     }
+    if is_no_speech_transcript(&transcript) {
+        return Err(ProviderError::InvalidOutput {
+            provider: "whisper_sidecar".to_string(),
+            message: "no speech detected".to_string(),
+        });
+    }
     Ok(transcript)
+}
+
+fn strip_timestamp_prefix(line: &str) -> &str {
+    let trimmed = line.trim_start();
+    if !trimmed.starts_with('[') {
+        return trimmed;
+    }
+
+    let Some(end) = trimmed.find(']') else {
+        return trimmed;
+    };
+    let timestamp = &trimmed[..=end];
+    if timestamp.contains("-->") {
+        trimmed[end + 1..].trim_start()
+    } else {
+        trimmed
+    }
+}
+
+fn is_no_speech_transcript(transcript: &str) -> bool {
+    let normalized = transcript.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "[blank_audio]" | "[no_speech]" | "[silence]" | "(silence)"
+    )
 }

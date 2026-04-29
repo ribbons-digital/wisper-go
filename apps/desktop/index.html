@@ -6,6 +6,13 @@
     <title>Wispergo</title>
   </head>
   <body>
+    <script>
+      const surface = new URLSearchParams(window.location.search).get("surface") === "recorder"
+        ? "recorder"
+        : "settings";
+      document.documentElement.dataset.surface = surface;
+      document.body.dataset.surface = surface;
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

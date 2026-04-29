@@ -17,6 +17,25 @@ fn parses_plain_whisper_output() {
 }
 
 #[test]
+fn strips_whisper_timestamps_from_output() {
+    let transcript = parse_whisper_output(
+        "[00:00:00.000 --> 00:00:02.000]   hello\n\
+         [00:00:02.000 --> 00:00:04.000]   world\n",
+    )
+    .expect("parse");
+
+    assert_eq!(transcript, "hello world");
+}
+
+#[test]
+fn rejects_blank_audio_tokens() {
+    assert!(matches!(
+        parse_whisper_output("[00:00:00.000 --> 00:00:10.000]   [BLANK_AUDIO]\n"),
+        Err(ProviderError::InvalidOutput { provider, .. }) if provider == "whisper_sidecar"
+    ));
+}
+
+#[test]
 fn rejects_empty_whisper_output() {
     assert!(matches!(
         parse_whisper_output(" \n"),
@@ -37,6 +56,7 @@ async fn sidecar_provider_invokes_configured_binary() {
         format!(
             "#!/bin/sh\n\
              while [ \"$#\" -gt 0 ]; do\n\
+             printf 'arg=%s\\n' \"$1\" >> \"{}\"\n\
              case \"$1\" in\n\
              --file)\n\
              shift\n\
@@ -52,6 +72,7 @@ async fn sidecar_provider_invokes_configured_binary() {
              shift\n\
              done\n\
              printf 'sidecar transcript\\n'\n",
+            marker.display(),
             captured_wav.display(),
             marker.display(),
             marker.display()
@@ -83,6 +104,14 @@ async fn sidecar_provider_invokes_configured_binary() {
     assert!(
         args.contains(&format!("model={}", model.display())),
         "sidecar should receive the configured model path"
+    );
+    assert!(
+        args.contains("arg=--no-timestamps"),
+        "sidecar should suppress timestamp output"
+    );
+    assert!(
+        args.contains("arg=--no-prints"),
+        "sidecar should suppress non-result logging"
     );
     assert_valid_16khz_mono_wav(&fs::read(&captured_wav).expect("read captured wav"), 2);
 }

@@ -1,38 +1,28 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { FloatingRecorder } from "./FloatingRecorder";
 
 describe("FloatingRecorder", () => {
-  it("starts and stops recording in toggle mode", async () => {
-    const user = userEvent.setup();
-    const onStart = vi.fn();
-    const onStop = vi.fn();
+  it("renders a keyboard-only shortcut prompt while idle", () => {
+    render(<FloatingRecorder status="idle" />);
 
-    const { rerender } = render(
-      <FloatingRecorder
-        status="idle"
-        mode="toggle"
-        onStart={onStart}
-        onStop={onStop}
-        onCancel={vi.fn()}
-      />,
-    );
+    expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Ready");
+    expect(screen.getByText("hold Command + Shift + Space")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Start recording" }));
-    expect(onStart).toHaveBeenCalledWith("toggle");
+  it("renders a concise recording prompt without controls", () => {
+    render(<FloatingRecorder status="recording" />);
 
-    rerender(
-      <FloatingRecorder
-        status="recording"
-        mode="toggle"
-        onStart={onStart}
-        onStop={onStop}
-        onCancel={vi.fn()}
-      />,
-    );
+    expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Recording");
+    expect(screen.getByText("release to insert")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
 
-    await user.click(screen.getByRole("button", { name: "Stop recording" }));
-    expect(onStop).toHaveBeenCalledWith("floating_button");
+  it("renders processing without exposing controls", () => {
+    render(<FloatingRecorder status="idle" busy />);
+
+    expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Processing");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

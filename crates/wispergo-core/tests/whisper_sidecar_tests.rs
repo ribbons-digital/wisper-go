@@ -44,6 +44,55 @@ fn rejects_empty_whisper_output() {
 }
 
 #[tokio::test]
+async fn sidecar_receives_configured_language_code() {
+    let dir = tempdir().expect("tempdir");
+    let script = dir.path().join("fake-whisper-language.sh");
+    let marker = dir.path().join("args.txt");
+    let model = dir.path().join("model.bin");
+    fs::write(&model, "fake model").expect("write model");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\n\
+             while [ \"$#\" -gt 0 ]; do\n\
+             printf 'arg=%s\\n' \"$1\" >> \"{}\"\n\
+             case \"$1\" in\n\
+             --file|--model|--language)\n\
+             shift\n\
+             printf 'value=%s\\n' \"$1\" >> \"{}\"\n\
+             ;;\n\
+             esac\n\
+             shift\n\
+             done\n\
+             printf '你好世界\\n'\n",
+            marker.display(),
+            marker.display()
+        ),
+    )
+    .expect("write script");
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&script).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).expect("chmod");
+    }
+
+    let provider =
+        WhisperSidecarProvider::new(script, Some(model)).with_language(Some("zh".to_string()));
+    let output = provider
+        .transcribe(vec![0.1, 0.2])
+        .await
+        .expect("transcribe");
+
+    assert_eq!(output.transcript, "你好世界");
+    let args = fs::read_to_string(&marker).expect("read sidecar marker");
+    assert!(args.contains("arg=--language"));
+    assert!(args.contains("value=zh"));
+}
+
+#[tokio::test]
 async fn sidecar_provider_invokes_configured_binary() {
     let dir = tempdir().expect("tempdir");
     let script = dir.path().join("fake-whisper.sh");

@@ -18,6 +18,7 @@ pub const WHISPER_SIDECAR_BITS_PER_SAMPLE: u16 = 16;
 pub struct WhisperSidecarProvider {
     binary_path: PathBuf,
     model_path: Option<PathBuf>,
+    language_code: Option<String>,
     timeout: Duration,
 }
 
@@ -26,8 +27,21 @@ impl WhisperSidecarProvider {
         Self {
             binary_path,
             model_path,
+            language_code: None,
             timeout: DEFAULT_TIMEOUT,
         }
+    }
+
+    pub fn with_language(mut self, language_code: Option<String>) -> Self {
+        self.language_code = language_code.and_then(|code| {
+            let code = code.trim().to_string();
+            if code.is_empty() {
+                None
+            } else {
+                Some(code)
+            }
+        });
+        self
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -44,6 +58,9 @@ impl AsrProvider for WhisperSidecarProvider {
 
         if let Some(model_path) = &self.model_path {
             command.arg("--model").arg(model_path);
+        }
+        if let Some(language_code) = &self.language_code {
+            command.arg("--language").arg(language_code);
         }
         command.arg("--no-timestamps");
         command.arg("--no-prints");

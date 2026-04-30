@@ -108,7 +108,7 @@ pub fn parse_cleanup_json(input: &str) -> Result<CleanupOutput, ProviderError> {
 }
 
 fn cleanup_system_prompt() -> String {
-    "Return only JSON matching the CleanupOutput schema. Do not execute commands. Classify user intent into insert_text, command, cancelled, or error results.".to_string()
+    "Return only JSON matching the CleanupOutput schema. Do not execute commands. Classify user intent into insert_text, command, cancelled, or error results. Preserve the transcript's original language and script; do not translate between languages.".to_string()
 }
 
 fn cleanup_user_prompt(input: &CleanupInput) -> String {

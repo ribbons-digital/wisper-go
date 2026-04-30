@@ -141,12 +141,20 @@ mod tests {
         let paths = super::resolve_asr_paths(&LocalModelSettings {
             whisper_binary_path: Some("/settings/whisper-cli".to_string()),
             whisper_model_path: Some("/settings/model.bin".to_string()),
-            recognition_language: Default::default(),
+            recognition_language: crate::state::RecognitionLanguage::Auto,
         })
         .expect("resolve paths");
 
         assert_eq!(paths.binary_path, PathBuf::from("/settings/whisper-cli"));
         assert_eq!(paths.model_path, PathBuf::from("/settings/model.bin"));
+    }
+
+    #[test]
+    fn chinese_language_maps_to_whisper_code() {
+        assert_eq!(
+            crate::state::RecognitionLanguage::Zh.whisper_code(),
+            Some("zh")
+        );
     }
 
     #[test]
@@ -283,6 +291,12 @@ fn local_asr_provider(settings: &LocalModelSettings) -> Result<WhisperSidecarPro
 
     Ok(
         WhisperSidecarProvider::new(paths.binary_path, Some(paths.model_path))
+            .with_language(
+                settings
+                    .recognition_language
+                    .whisper_code()
+                    .map(str::to_string),
+            )
             .with_timeout(Duration::from_secs(30)),
     )
 }

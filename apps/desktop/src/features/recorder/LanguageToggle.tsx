@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { RecognitionLanguage } from "../../types/pipeline";
 
 type LanguageOption = {
@@ -22,10 +23,25 @@ export function LanguageToggle({
   onSelect,
   onMenuOpenChange,
 }: Props) {
+  const [hovered, setHovered] = useState(false);
   const current = languages.find((option) => option.value === language) ?? languages[0];
+  const className = ["language-toggle", menuOpen ? "is-open" : "", hovered ? "is-hovered" : ""]
+    .filter(Boolean)
+    .join(" ");
+
+  function handleMouseLeave() {
+    setHovered(false);
+    if (menuOpen) {
+      onMenuOpenChange(false);
+    }
+  }
 
   return (
-    <div className={menuOpen ? "language-toggle is-open" : "language-toggle"}>
+    <div
+      className={className}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={handleMouseLeave}
+    >
       {menuOpen ? (
         <div className="language-menu" role="menu" aria-label="Recognition language">
           {languages.map((option) => {

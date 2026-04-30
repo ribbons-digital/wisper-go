@@ -531,6 +531,7 @@ mod tests {
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
         assert!(styles.contains(".language-toggle:hover .language-chevron"));
+        assert!(styles.contains(".language-toggle.is-hovered .language-chevron"));
         assert!(styles.contains(".language-toggle.is-open .language-chevron"));
         assert!(
             !styles.contains(".language-toggle:focus-within .language-chevron"),

@@ -59,6 +59,50 @@ describe("LanguageToggle", () => {
     expect(onCycle).toHaveBeenCalled();
   });
 
+  it("reveals the chevron only while hovered and clears it on hover off", async () => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <LanguageToggle
+        language="auto"
+        languages={languages}
+        menuOpen={false}
+        onCycle={vi.fn()}
+        onSelect={vi.fn()}
+        onMenuOpenChange={vi.fn()}
+      />,
+    );
+    const toggle = container.querySelector(".language-toggle");
+    expect(toggle).not.toBeNull();
+
+    await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
+    expect(toggle).toHaveClass("is-hovered");
+
+    await user.unhover(toggle as Element);
+    expect(toggle).not.toHaveClass("is-hovered");
+  });
+
+  it("closes the language menu when hovering off the control", async () => {
+    const user = userEvent.setup();
+    const onMenuOpenChange = vi.fn();
+    const { container } = render(
+      <LanguageToggle
+        language="auto"
+        languages={languages}
+        menuOpen
+        onCycle={vi.fn()}
+        onSelect={vi.fn()}
+        onMenuOpenChange={onMenuOpenChange}
+      />,
+    );
+    const toggle = container.querySelector(".language-toggle");
+    expect(toggle).not.toBeNull();
+
+    await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
+    await user.unhover(toggle as Element);
+
+    expect(onMenuOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("opens menu from chevron and selects a single language", async () => {
     const user = userEvent.setup();
     const onMenuOpenChange = vi.fn();

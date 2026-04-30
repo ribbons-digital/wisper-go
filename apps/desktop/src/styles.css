@@ -195,6 +195,97 @@ button:disabled {
   gap: 8px;
 }
 
+.language-surface {
+  width: 100vw;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  align-content: end;
+  justify-content: end;
+  overflow: hidden;
+}
+
+.language-toggle {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  color: #ffffff;
+}
+
+.language-toggle-bar {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 999px;
+  background: #05070a;
+  overflow: hidden;
+}
+
+.language-current,
+.language-chevron,
+.language-menu-item {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.language-current {
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.language-chevron {
+  width: 0;
+  min-height: 40px;
+  padding: 0;
+  opacity: 0;
+  overflow: hidden;
+  color: #c7d0dc;
+  transition:
+    width 120ms ease,
+    opacity 120ms ease;
+}
+
+.language-toggle:hover .language-chevron,
+.language-toggle:focus-within .language-chevron,
+.language-toggle.is-open .language-chevron {
+  width: 32px;
+  opacity: 1;
+}
+
+.language-menu {
+  min-width: 220px;
+  padding: 8px;
+  border: 1px solid rgb(0 0 0 / 12%);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #18202a;
+  box-shadow: 0 18px 48px rgb(0 0 0 / 22%);
+}
+
+.language-menu-item {
+  width: 100%;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: #18202a;
+  text-align: left;
+}
+
+.language-menu-item:hover {
+  background: #f1f4f7;
+}
+
 @media (max-width: 560px) {
   .app-shell {
     width: min(100vw - 20px, 760px);

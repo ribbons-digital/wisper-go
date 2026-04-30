@@ -403,6 +403,50 @@ mod tests {
     }
 
     #[test]
+    fn language_surface_css_stays_transparent_and_anchored_after_mobile_overrides() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles =
+            fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
+
+        assert!(styles.contains("html[data-surface=\"language\"]"));
+        assert!(styles.contains("html[data-surface=\"language\"] body"));
+        assert!(styles.contains("html[data-surface=\"language\"] #root"));
+        assert!(styles.contains("body[data-surface=\"language\"]"));
+
+        let mobile_media_index = styles
+            .find("@media (max-width: 560px)")
+            .expect("mobile media query exists");
+        let language_shell_index = styles
+            .find("html[data-surface=\"language\"] .app-shell")
+            .expect("language shell override exists");
+        assert!(
+            language_shell_index > mobile_media_index,
+            "language shell override must come after mobile media rules"
+        );
+
+        let language_shell_styles = styles[language_shell_index..]
+            .split('{')
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("language shell styles exist");
+        assert!(language_shell_styles.contains("width: 100vw;"));
+        assert!(language_shell_styles.contains("min-height: 100vh;"));
+        assert!(language_shell_styles.contains("padding: 0;"));
+        assert!(language_shell_styles.contains("align-content: end;"));
+        assert!(language_shell_styles.contains("justify-content: end;"));
+
+        let post_media_styles = &styles[mobile_media_index..];
+        assert!(post_media_styles.contains("html[data-surface=\"language\"] .language-current"));
+        assert!(post_media_styles.contains("width: 40px;"));
+        assert!(post_media_styles.contains("html[data-surface=\"language\"] .language-chevron"));
+        assert!(post_media_styles.contains("width: 0;"));
+        assert!(
+            post_media_styles.contains("html[data-surface=\"language\"] .language-current:hover")
+        );
+        assert!(post_media_styles.contains("background: transparent;"));
+    }
+
+    #[test]
     fn recorder_pill_has_transparent_padding_and_fixed_radius() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let styles =

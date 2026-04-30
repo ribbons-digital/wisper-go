@@ -13,7 +13,11 @@ body[data-surface="settings"] {
 html[data-surface="recorder"],
 html[data-surface="recorder"] body,
 html[data-surface="recorder"] #root,
-body[data-surface="recorder"] {
+body[data-surface="recorder"],
+html[data-surface="language"],
+html[data-surface="language"] body,
+html[data-surface="language"] #root,
+body[data-surface="language"] {
   background: transparent;
 }
 
@@ -317,4 +321,25 @@ html[data-surface="recorder"] .app-shell {
 html[data-surface="recorder"] .floating-recorder {
   width: 304px;
   height: 48px;
+}
+
+html[data-surface="language"] .app-shell {
+  width: 100vw;
+  min-height: 100vh;
+  padding: 0;
+  align-content: end;
+  justify-content: end;
+}
+
+html[data-surface="language"] .language-current {
+  width: 40px;
+}
+
+html[data-surface="language"] .language-chevron {
+  width: 0;
+}
+
+html[data-surface="language"] .language-current:hover,
+html[data-surface="language"] .language-chevron:hover {
+  background: transparent;
 }

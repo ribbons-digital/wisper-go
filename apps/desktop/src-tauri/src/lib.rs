@@ -10,8 +10,9 @@ mod trigger;
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
     accessibility_status, fallback_policy_label, list_microphones, load_persisted_settings,
-    local_model_settings, microphone_status, request_accessibility, request_microphone_access,
-    selected_microphone_id, set_local_model_settings, set_microphone_device,
+    local_model_settings, microphone_status, recognition_language, request_accessibility,
+    request_microphone_access, selected_microphone_id, set_local_model_settings,
+    set_microphone_device, set_recognition_language,
 };
 use state::AppState;
 use tauri::{Emitter, Manager};
@@ -64,7 +65,9 @@ pub fn run() {
             accessibility_status,
             request_accessibility,
             local_model_settings,
-            set_local_model_settings
+            set_local_model_settings,
+            recognition_language,
+            set_recognition_language
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -193,6 +196,15 @@ mod tests {
     #[test]
     fn recorder_window_ignores_cursor_events_because_it_is_keyboard_only() {
         assert!(recorder_window_ignores_cursor_events());
+    }
+
+    #[test]
+    fn app_registers_recognition_language_commands() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+
+        assert!(source.contains("recognition_language"));
+        assert!(source.contains("set_recognition_language"));
     }
 
     #[test]

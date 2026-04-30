@@ -1,13 +1,14 @@
 use std::fs;
 use std::path::PathBuf;
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::audio::AudioInputDevice;
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
-use crate::state::{AppState, LocalModelSettings};
+use crate::state::{AppState, LocalModelSettings, RecognitionLanguage};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
+pub const RECOGNITION_LANGUAGE_CHANGED_EVENT: &str = "wispergo://recognition-language-changed";
 
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -65,7 +66,32 @@ pub fn set_local_model_settings(
     let settings = settings.normalized();
     state.set_local_model_settings(settings.clone());
     save_persisted_settings(&app, &settings)?;
+    app.emit(
+        RECOGNITION_LANGUAGE_CHANGED_EVENT,
+        settings.recognition_language,
+    )
+    .map_err(|err| err.to_string())?;
     Ok(settings.to_frontend())
+}
+
+#[tauri::command]
+pub fn recognition_language(state: State<'_, AppState>) -> RecognitionLanguage {
+    state.local_model_settings().recognition_language
+}
+
+#[tauri::command]
+pub fn set_recognition_language(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    language: RecognitionLanguage,
+) -> Result<RecognitionLanguage, String> {
+    let mut settings = state.local_model_settings();
+    settings.recognition_language = language;
+    state.set_local_model_settings(settings.clone());
+    save_persisted_settings(&app, &settings)?;
+    app.emit(RECOGNITION_LANGUAGE_CHANGED_EVENT, language)
+        .map_err(|err| err.to_string())?;
+    Ok(language)
 }
 
 #[tauri::command]

@@ -399,7 +399,10 @@ mod tests {
         assert!(styles.contains("html[data-surface=\"recorder\"]"));
         assert!(styles.contains("body[data-surface=\"recorder\"]"));
         assert!(styles.contains("#root"));
-        assert!(index.contains("document.documentElement.dataset.surface"));
+        assert!(index.contains("requestedSurface === \"recorder\""));
+        assert!(index.contains("requestedSurface === \"language\""));
+        assert!(index.contains("document.documentElement.dataset.surface = surface"));
+        assert!(index.contains("document.body.dataset.surface = surface"));
     }
 
     #[test]

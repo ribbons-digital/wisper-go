@@ -7,8 +7,9 @@
   </head>
   <body>
     <script>
-      const surface = new URLSearchParams(window.location.search).get("surface") === "recorder"
-        ? "recorder"
+      const requestedSurface = new URLSearchParams(window.location.search).get("surface");
+      const surface = requestedSurface === "recorder" || requestedSurface === "language"
+        ? requestedSurface
         : "settings";
       document.documentElement.dataset.surface = surface;
       document.body.dataset.surface = surface;

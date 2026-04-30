@@ -525,6 +525,20 @@ mod tests {
     }
 
     #[test]
+    fn language_chevron_reveals_on_hover_without_sticking_after_focus() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles =
+            fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
+
+        assert!(styles.contains(".language-toggle:hover .language-chevron"));
+        assert!(styles.contains(".language-toggle.is-open .language-chevron"));
+        assert!(
+            !styles.contains(".language-toggle:focus-within .language-chevron"),
+            "click focus must not keep the hover-only chevron visible after the pointer leaves"
+        );
+    }
+
+    #[test]
     fn recorder_pill_has_transparent_padding_and_fixed_radius() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let styles =

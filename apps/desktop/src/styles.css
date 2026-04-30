@@ -257,7 +257,6 @@ button:disabled {
 }
 
 .language-toggle:hover .language-chevron,
-.language-toggle:focus-within .language-chevron,
 .language-toggle.is-open .language-chevron {
   width: 32px;
   opacity: 1;

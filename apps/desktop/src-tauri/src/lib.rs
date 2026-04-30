@@ -160,13 +160,44 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-const FLOATING_BOTTOM_MARGIN: i32 = 88;
-const FLOATING_GAP: i32 = 8;
-const RECORDER_WINDOW_WIDTH: u32 = 320;
-const LANGUAGE_CLOSED_WIDTH: u32 = 74;
-const LANGUAGE_CLOSED_HEIGHT: u32 = 52;
-const LANGUAGE_OPEN_WIDTH: u32 = 260;
-const LANGUAGE_OPEN_HEIGHT: u32 = 190;
+const FLOATING_BOTTOM_MARGIN: f64 = 88.0;
+const FLOATING_GAP: f64 = 8.0;
+const LANGUAGE_CLOSED_WIDTH: f64 = 74.0;
+const LANGUAGE_CLOSED_HEIGHT: f64 = 52.0;
+const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
+const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
+
+fn logical_to_physical_i32(logical: f64, scale_factor: f64) -> i32 {
+    (logical * scale_factor).round() as i32
+}
+
+fn logical_to_physical_u32(logical: f64, scale_factor: f64) -> u32 {
+    logical_to_physical_i32(logical, scale_factor).max(0) as u32
+}
+
+fn centered_window_left(monitor_left: i32, monitor_width: u32, window_width: u32) -> i32 {
+    monitor_left + (monitor_width as i32 - window_width as i32) / 2
+}
+
+fn configured_window_physical_width(
+    app: &tauri::AppHandle,
+    label: &str,
+    scale_factor: f64,
+) -> Option<u32> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label.as_str() == label)
+        .map(|window| logical_to_physical_u32(window.width, scale_factor))
+}
+
+fn recorder_window_physical_width(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
+    app.get_webview_window("recorder")
+        .and_then(|window| window.outer_size().ok())
+        .map(|size| size.width)
+        .or_else(|| configured_window_physical_width(app, "recorder", scale_factor))
+}
 
 fn position_recorder_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("recorder") else {
@@ -186,10 +217,10 @@ fn position_recorder_window(app: &tauri::AppHandle) {
 
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
-    let x = monitor_position.x + (monitor_size.width as i32 - window_size.width as i32) / 2;
-    let y = monitor_position.y + monitor_size.height as i32
-        - window_size.height as i32
-        - FLOATING_BOTTOM_MARGIN;
+    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, monitor.scale_factor());
+    let x = centered_window_left(monitor_position.x, monitor_size.width, window_size.width);
+    let y =
+        monitor_position.y + monitor_size.height as i32 - window_size.height as i32 - bottom_margin;
     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         x, y,
     )));
@@ -214,17 +245,21 @@ fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result
         (LANGUAGE_CLOSED_WIDTH, LANGUAGE_CLOSED_HEIGHT)
     };
 
-    window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-        width, height,
-    )))?;
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(width, height)))?;
 
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
-    let recorder_x =
-        monitor_position.x + (monitor_size.width as i32 - RECORDER_WINDOW_WIDTH as i32) / 2;
-    let x = recorder_x - FLOATING_GAP - width as i32;
-    let y =
-        monitor_position.y + monitor_size.height as i32 - height as i32 - FLOATING_BOTTOM_MARGIN;
+    let scale_factor = monitor.scale_factor();
+    let physical_width = logical_to_physical_i32(width, scale_factor);
+    let physical_height = logical_to_physical_i32(height, scale_factor);
+    let physical_gap = logical_to_physical_i32(FLOATING_GAP, scale_factor);
+    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
+    let Some(recorder_width) = recorder_window_physical_width(app, scale_factor) else {
+        return Ok(());
+    };
+    let recorder_x = centered_window_left(monitor_position.x, monitor_size.width, recorder_width);
+    let x = recorder_x - physical_gap - physical_width;
+    let y = monitor_position.y + monitor_size.height as i32 - physical_height - bottom_margin;
 
     window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         x, y,
@@ -266,12 +301,15 @@ mod tests {
             .and_then(|source| source.split("])").next())
             .expect("tauri generate_handler block");
 
-        assert!(generate_handler_block
+        let registered_commands: Vec<&str> = generate_handler_block
             .lines()
-            .any(|line| line.trim().trim_end_matches(',') == "recognition_language"));
-        assert!(generate_handler_block
-            .lines()
-            .any(|line| line.trim().trim_end_matches(',') == "set_recognition_language"));
+            .map(|line| line.trim().trim_end_matches(','))
+            .filter(|line| !line.is_empty())
+            .collect();
+
+        assert!(registered_commands.contains(&"recognition_language"));
+        assert!(registered_commands.contains(&"set_recognition_language"));
+        assert!(registered_commands.contains(&"set_language_menu_open"));
     }
 
     #[test]
@@ -318,8 +356,18 @@ mod tests {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let capability = fs::read_to_string(manifest_dir.join("capabilities/default.json"))
             .expect("default capability");
+        let capability: Value = serde_json::from_str(&capability).expect("valid capability json");
+        let windows = capability["windows"]
+            .as_array()
+            .expect("capability windows array");
 
-        assert!(capability.contains("\"language\""));
+        assert!(windows.iter().any(|window| window.as_str() == Some("main")));
+        assert!(windows
+            .iter()
+            .any(|window| window.as_str() == Some("recorder")));
+        assert!(windows
+            .iter()
+            .any(|window| window.as_str() == Some("language")));
     }
 
     #[test]

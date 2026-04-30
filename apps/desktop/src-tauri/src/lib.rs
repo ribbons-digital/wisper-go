@@ -166,6 +166,7 @@ const LANGUAGE_CLOSED_WIDTH: f64 = 74.0;
 const LANGUAGE_CLOSED_HEIGHT: f64 = 52.0;
 const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
 const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
+const LANGUAGE_TOGGLE_BAR_HEIGHT: f64 = 40.0;
 
 fn logical_to_physical_i32(logical: f64, scale_factor: f64) -> i32 {
     (logical * scale_factor).round() as i32
@@ -177,6 +178,19 @@ fn logical_to_physical_u32(logical: f64, scale_factor: f64) -> u32 {
 
 fn centered_window_left(monitor_left: i32, monitor_width: u32, window_width: u32) -> i32 {
     monitor_left + (monitor_width as i32 - window_width as i32) / 2
+}
+
+fn language_window_top_for_aligned_toggle_bar(
+    monitor_top: i32,
+    monitor_height: u32,
+    bottom_margin: i32,
+    recorder_height: u32,
+    language_height: i32,
+    toggle_bar_height: i32,
+) -> i32 {
+    let monitor_bottom = monitor_top as f64 + monitor_height as f64;
+    let recorder_center_y = monitor_bottom - bottom_margin as f64 - recorder_height as f64 / 2.0;
+    (recorder_center_y - language_height as f64 + toggle_bar_height as f64 / 2.0).round() as i32
 }
 
 fn configured_window_physical_width(
@@ -192,11 +206,31 @@ fn configured_window_physical_width(
         .map(|window| logical_to_physical_u32(window.width, scale_factor))
 }
 
+fn configured_window_physical_height(
+    app: &tauri::AppHandle,
+    label: &str,
+    scale_factor: f64,
+) -> Option<u32> {
+    app.config()
+        .app
+        .windows
+        .iter()
+        .find(|window| window.label.as_str() == label)
+        .map(|window| logical_to_physical_u32(window.height, scale_factor))
+}
+
 fn recorder_window_physical_width(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
     app.get_webview_window("recorder")
         .and_then(|window| window.outer_size().ok())
         .map(|size| size.width)
         .or_else(|| configured_window_physical_width(app, "recorder", scale_factor))
+}
+
+fn recorder_window_physical_height(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
+    app.get_webview_window("recorder")
+        .and_then(|window| window.outer_size().ok())
+        .map(|size| size.height)
+        .or_else(|| configured_window_physical_height(app, "recorder", scale_factor))
 }
 
 fn position_recorder_window(app: &tauri::AppHandle) {
@@ -253,13 +287,25 @@ fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result
     let physical_width = logical_to_physical_i32(width, scale_factor);
     let physical_height = logical_to_physical_i32(height, scale_factor);
     let physical_gap = logical_to_physical_i32(FLOATING_GAP, scale_factor);
+    let physical_toggle_bar_height =
+        logical_to_physical_i32(LANGUAGE_TOGGLE_BAR_HEIGHT, scale_factor);
     let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
     let Some(recorder_width) = recorder_window_physical_width(app, scale_factor) else {
         return Ok(());
     };
+    let Some(recorder_height) = recorder_window_physical_height(app, scale_factor) else {
+        return Ok(());
+    };
     let recorder_x = centered_window_left(monitor_position.x, monitor_size.width, recorder_width);
     let x = recorder_x - physical_gap - physical_width;
-    let y = monitor_position.y + monitor_size.height as i32 - physical_height - bottom_margin;
+    let y = language_window_top_for_aligned_toggle_bar(
+        monitor_position.y,
+        monitor_size.height,
+        bottom_margin,
+        recorder_height,
+        physical_height,
+        physical_toggle_bar_height,
+    );
 
     window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         x, y,
@@ -274,7 +320,10 @@ mod tests {
 
     use serde_json::Value;
 
-    use super::{recorder_window_ignores_cursor_events, should_hide_window_on_close};
+    use super::{
+        language_window_top_for_aligned_toggle_bar, recorder_window_ignores_cursor_events,
+        should_hide_window_on_close,
+    };
 
     #[test]
     fn settings_window_close_hides_instead_of_destroying_window() {
@@ -285,6 +334,32 @@ mod tests {
     #[test]
     fn recorder_window_ignores_cursor_events_because_it_is_keyboard_only() {
         assert!(recorder_window_ignores_cursor_events());
+    }
+
+    #[test]
+    fn language_window_top_aligns_toggle_bar_center_with_recorder_center() {
+        let monitor_top = 0;
+        let monitor_height = 900;
+        let bottom_margin = 88;
+        let recorder_height = 62;
+        let toggle_bar_height = 40;
+        let monitor_bottom = monitor_top as f64 + monitor_height as f64;
+        let recorder_center = monitor_bottom - bottom_margin as f64 - recorder_height as f64 / 2.0;
+
+        for language_height in [52, 190] {
+            let language_y = language_window_top_for_aligned_toggle_bar(
+                monitor_top,
+                monitor_height,
+                bottom_margin,
+                recorder_height,
+                language_height,
+                toggle_bar_height,
+            );
+            let language_bar_center =
+                language_y as f64 + language_height as f64 - toggle_bar_height as f64 / 2.0;
+
+            assert_eq!(language_bar_center, recorder_center);
+        }
     }
 
     #[test]

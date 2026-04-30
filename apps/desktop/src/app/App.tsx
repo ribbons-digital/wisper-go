@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { FloatingRecorder } from "../features/recorder/FloatingRecorder";
+import { LanguageToggle } from "../features/recorder/LanguageToggle";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import {
   accessibilityStatus,
@@ -8,12 +9,15 @@ import {
   listMicrophones,
   localModelSettings,
   microphoneStatus,
+  recognitionLanguage,
   recordingStatus,
   requestMicrophoneAccess,
   requestAccessibility,
   selectedMicrophoneId,
+  setLanguageMenuOpen,
   setMicrophoneDevice,
   setLocalModelSettings,
+  setRecognitionLanguage,
   startRecording,
   stopRecording,
 } from "../lib/tauriApi";
@@ -22,6 +26,7 @@ import type {
   AudioInputDevice,
   LocalModelSettings,
   MicrophoneStatus,
+  RecognitionLanguage,
   StopRecordingOutput,
 } from "../types/pipeline";
 
@@ -29,10 +34,16 @@ type RecordingStatus = "idle" | "recording";
 type PermissionRequest = "microphone" | "accessibility";
 const MICROPHONE_REFRESH_MS = 2000;
 const ACCESSIBILITY_REFRESH_MS = 2000;
+const RECOGNITION_LANGUAGES = [
+  { value: "auto", label: "Auto" },
+  { value: "en", label: "English" },
+  { value: "zh", label: "Chinese" },
+] as const;
 
 export function App() {
   const surface = appSurface();
   const isRecorderSurface = surface === "recorder";
+  const isLanguageSurface = surface === "language";
   const [status, setStatus] = useState<RecordingStatus>("idle");
   const [fallbackPolicy, setFallbackPolicy] = useState("prefer_local_ask_before_cloud");
   const [microphones, setMicrophones] = useState<AudioInputDevice[]>([]);
@@ -51,6 +62,7 @@ export function App() {
     whisperModelPath: "",
     recognitionLanguage: "auto",
   });
+  const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState<PermissionRequest | null>(null);
@@ -74,6 +86,33 @@ export function App() {
 
   useEffect(() => {
     let mounted = true;
+
+    void recognitionLanguage()
+      .then((language) => {
+        if (mounted) {
+          applyRecognitionLanguage(language);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          applyRecognitionLanguage("auto");
+        }
+      });
+
+    const unlisten = listen<RecognitionLanguage>("wispergo://recognition-language-changed", (event) => {
+      if (mounted) {
+        applyRecognitionLanguage(event.payload);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
     const initialOperation = operationId.current;
 
     void recordingStatus()
@@ -87,7 +126,7 @@ export function App() {
           applyStatus("idle");
         }
       });
-    if (isRecorderSurface) {
+    if (isRecorderSurface || isLanguageSurface) {
       return () => {
         mounted = false;
       };
@@ -182,7 +221,7 @@ export function App() {
       window.clearInterval(microphoneStatusRefresh);
       window.clearInterval(accessibilityRefresh);
     };
-  }, [isRecorderSurface]);
+  }, [isRecorderSurface, isLanguageSurface]);
 
   useEffect(() => {
     if (!isRecorderSurface) {
@@ -370,10 +409,59 @@ export function App() {
       });
   }
 
+  function nextRecognitionLanguage(language: RecognitionLanguage): RecognitionLanguage {
+    if (language === "auto") {
+      return "en";
+    }
+    if (language === "en") {
+      return "zh";
+    }
+    return "auto";
+  }
+
+  function applyRecognitionLanguage(language: RecognitionLanguage) {
+    setModelSettings((current) => ({ ...current, recognitionLanguage: language }));
+  }
+
+  function updateRecognitionLanguage(language: RecognitionLanguage) {
+    applyRecognitionLanguage(language);
+    void setRecognitionLanguage(language).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }
+
+  function updateLanguageMenuOpen(open: boolean) {
+    setLanguageMenuOpenState(open);
+    void setLanguageMenuOpen(open).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }
+
   return (
-    <main className={isRecorderSurface ? "app-shell recorder-surface" : "app-shell"}>
+    <main
+      className={
+        isRecorderSurface
+          ? "app-shell recorder-surface"
+          : isLanguageSurface
+            ? "app-shell language-surface"
+            : "app-shell"
+      }
+    >
       {isRecorderSurface ? (
         <FloatingRecorder status={status} busy={pending} />
+      ) : null}
+      {isLanguageSurface ? (
+        <LanguageToggle
+          language={modelSettings.recognitionLanguage}
+          languages={RECOGNITION_LANGUAGES}
+          menuOpen={languageMenuOpen}
+          onCycle={() => updateRecognitionLanguage(nextRecognitionLanguage(modelSettings.recognitionLanguage))}
+          onSelect={(language) => {
+            updateRecognitionLanguage(language);
+            updateLanguageMenuOpen(false);
+          }}
+          onMenuOpenChange={updateLanguageMenuOpen}
+        />
       ) : null}
       {lastInsert ? (
         <p className="insert-status" role="status">
@@ -385,7 +473,7 @@ export function App() {
           {error}
         </p>
       ) : null}
-      {!isRecorderSurface ? (
+      {!isRecorderSurface && !isLanguageSurface ? (
         <SettingsPanel
           fallbackPolicy={fallbackPolicy}
           microphones={microphones}
@@ -459,9 +547,13 @@ export function App() {
   );
 }
 
-function appSurface(): "settings" | "recorder" {
+function appSurface(): "settings" | "recorder" | "language" {
   const params = new URLSearchParams(window.location.search);
-  return params.get("surface") === "recorder" ? "recorder" : "settings";
+  const surface = params.get("surface");
+  if (surface === "recorder" || surface === "language") {
+    return surface;
+  }
+  return "settings";
 }
 
 function insertSummary(output: StopRecordingOutput): string {

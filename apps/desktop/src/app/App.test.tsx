@@ -7,11 +7,14 @@ import {
   listMicrophones,
   localModelSettings,
   microphoneStatus,
+  recognitionLanguage,
   requestMicrophoneAccess,
   requestAccessibility,
   selectedMicrophoneId,
+  setLanguageMenuOpen,
   setMicrophoneDevice,
   setLocalModelSettings,
+  setRecognitionLanguage,
   startRecording,
   stopRecording,
 } from "../lib/tauriApi";
@@ -41,12 +44,15 @@ vi.mock("../lib/tauriApi", () => ({
     { id: "1", name: "Studio Mic", isDefault: false },
   ]),
   microphoneStatus: vi.fn().mockResolvedValue({ granted: true, canPrompt: true }),
+  recognitionLanguage: vi.fn().mockResolvedValue("auto"),
   requestAccessibility: vi.fn().mockResolvedValue({ granted: true, canPrompt: true }),
   requestMicrophoneAccess: vi.fn().mockResolvedValue({ granted: true, canPrompt: true }),
   recordingStatus: vi.fn().mockResolvedValue("idle"),
   selectedMicrophoneId: vi.fn().mockResolvedValue("default"),
+  setLanguageMenuOpen: vi.fn().mockResolvedValue(undefined),
   setMicrophoneDevice: vi.fn().mockResolvedValue(undefined),
   setLocalModelSettings: vi.fn().mockImplementation((settings) => Promise.resolve(settings)),
+  setRecognitionLanguage: vi.fn().mockResolvedValue("en"),
   startRecording: vi.fn().mockResolvedValue(undefined),
   stopRecording: vi.fn().mockResolvedValue({
     result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
@@ -62,11 +68,14 @@ describe("App", () => {
     vi.mocked(localModelSettings).mockReset();
     vi.mocked(listMicrophones).mockReset();
     vi.mocked(microphoneStatus).mockReset();
+    vi.mocked(recognitionLanguage).mockReset();
     vi.mocked(requestAccessibility).mockReset();
     vi.mocked(requestMicrophoneAccess).mockReset();
     vi.mocked(selectedMicrophoneId).mockReset();
+    vi.mocked(setLanguageMenuOpen).mockReset();
     vi.mocked(setMicrophoneDevice).mockReset();
     vi.mocked(setLocalModelSettings).mockReset();
+    vi.mocked(setRecognitionLanguage).mockReset();
     vi.mocked(startRecording).mockReset();
     vi.mocked(stopRecording).mockReset();
     eventListeners.clear();
@@ -82,11 +91,14 @@ describe("App", () => {
       { id: "1", name: "Studio Mic", isDefault: false },
     ]);
     vi.mocked(microphoneStatus).mockResolvedValue({ granted: true, canPrompt: true });
+    vi.mocked(recognitionLanguage).mockResolvedValue("auto");
     vi.mocked(requestAccessibility).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(requestMicrophoneAccess).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(selectedMicrophoneId).mockResolvedValue("default");
+    vi.mocked(setLanguageMenuOpen).mockResolvedValue(undefined);
     vi.mocked(setMicrophoneDevice).mockResolvedValue(undefined);
     vi.mocked(setLocalModelSettings).mockImplementation((settings) => Promise.resolve(settings));
+    vi.mocked(setRecognitionLanguage).mockImplementation(async (language) => language);
     vi.mocked(startRecording).mockResolvedValue(undefined);
     vi.mocked(stopRecording).mockResolvedValue({
       result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
@@ -392,6 +404,50 @@ describe("App", () => {
     await act(async () => {
       await Promise.resolve();
     });
+
+    expect(listMicrophones).not.toHaveBeenCalled();
+    expect(microphoneStatus).not.toHaveBeenCalled();
+    expect(accessibilityStatus).not.toHaveBeenCalled();
+    expect(localModelSettings).not.toHaveBeenCalled();
+    expect(selectedMicrophoneId).not.toHaveBeenCalled();
+  });
+
+  it("renders only language controls on the language surface", async () => {
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: "Recognition language: Auto" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Recorder" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Settings" })).not.toBeInTheDocument();
+  });
+
+  it("cycles recognition language from the language surface", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Recognition language: Auto" }));
+
+    expect(setRecognitionLanguage).toHaveBeenCalledWith("en");
+  });
+
+  it("opens the language menu from the chevron", async () => {
+    const user = userEvent.setup();
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Choose recognition language" }));
+
+    expect(setLanguageMenuOpen).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole("menuitemradio", { name: "Auto" })).toBeInTheDocument();
+  });
+
+  it("does not query settings-only data from the language surface", async () => {
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Recognition language: Auto" });
 
     expect(listMicrophones).not.toHaveBeenCalled();
     expect(microphoneStatus).not.toHaveBeenCalled();

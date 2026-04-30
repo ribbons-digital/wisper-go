@@ -2,11 +2,55 @@ use std::sync::Mutex;
 
 use crate::audio::AudioInputSession;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecognitionLanguage {
+    #[default]
+    Auto,
+    En,
+    Zh,
+}
+
+impl RecognitionLanguage {
+    pub fn from_code(code: Option<&str>) -> Self {
+        match code
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "en" => Self::En,
+            "zh" => Self::Zh,
+            _ => Self::Auto,
+        }
+    }
+
+    pub fn whisper_code(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::En => Some("en"),
+            Self::Zh => Some("zh"),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RecognitionLanguage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Self::from_code(value.as_deref()))
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalModelSettings {
     pub whisper_binary_path: Option<String>,
     pub whisper_model_path: Option<String>,
+    #[serde(default)]
+    pub recognition_language: RecognitionLanguage,
 }
 
 impl LocalModelSettings {
@@ -14,6 +58,7 @@ impl LocalModelSettings {
         Self {
             whisper_binary_path: normalize_optional_path(self.whisper_binary_path),
             whisper_model_path: normalize_optional_path(self.whisper_model_path),
+            recognition_language: self.recognition_language,
         }
     }
 
@@ -21,6 +66,7 @@ impl LocalModelSettings {
         Self {
             whisper_binary_path: Some(self.whisper_binary_path.clone().unwrap_or_default()),
             whisper_model_path: Some(self.whisper_model_path.clone().unwrap_or_default()),
+            recognition_language: self.recognition_language,
         }
     }
 }
@@ -151,7 +197,7 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, RecordingSession, RecordingStatus};
+    use super::{AppState, RecognitionLanguage, RecordingSession, RecordingStatus};
 
     #[test]
     fn selected_microphone_round_trips() {
@@ -172,6 +218,7 @@ mod tests {
         state.set_local_model_settings(super::LocalModelSettings {
             whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
             whisper_model_path: Some("/models/base.bin".to_string()),
+            recognition_language: RecognitionLanguage::Auto,
         });
 
         assert_eq!(
@@ -179,8 +226,56 @@ mod tests {
             super::LocalModelSettings {
                 whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
                 whisper_model_path: Some("/models/base.bin".to_string()),
+                recognition_language: RecognitionLanguage::Auto,
             }
         );
+    }
+
+    #[test]
+    fn local_model_settings_default_to_auto_language() {
+        let state = AppState::default();
+
+        assert_eq!(
+            state.local_model_settings().recognition_language,
+            RecognitionLanguage::Auto
+        );
+    }
+
+    #[test]
+    fn local_model_settings_language_round_trip() {
+        let state = AppState::default();
+
+        state.set_local_model_settings(super::LocalModelSettings {
+            whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
+            whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
+            recognition_language: RecognitionLanguage::Zh,
+        });
+
+        assert_eq!(
+            state.local_model_settings(),
+            super::LocalModelSettings {
+                whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
+                whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
+                recognition_language: RecognitionLanguage::Zh,
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_recognition_language_deserializes_to_auto() {
+        let settings: super::LocalModelSettings = serde_json::from_str(
+            r#"{"whisperBinaryPath":"/bin/whisper-cli","whisperModelPath":"/models/model.bin","recognitionLanguage":"fr"}"#,
+        )
+        .expect("settings deserialize");
+
+        assert_eq!(settings.recognition_language, RecognitionLanguage::Auto);
+    }
+
+    #[test]
+    fn recognition_language_maps_to_whisper_codes() {
+        assert_eq!(RecognitionLanguage::Auto.whisper_code(), None);
+        assert_eq!(RecognitionLanguage::En.whisper_code(), Some("en"));
+        assert_eq!(RecognitionLanguage::Zh.whisper_code(), Some("zh"));
     }
 
     #[test]

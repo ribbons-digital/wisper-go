@@ -141,6 +141,7 @@ mod tests {
         let paths = super::resolve_asr_paths(&LocalModelSettings {
             whisper_binary_path: Some("/settings/whisper-cli".to_string()),
             whisper_model_path: Some("/settings/model.bin".to_string()),
+            recognition_language: Default::default(),
         })
         .expect("resolve paths");
 

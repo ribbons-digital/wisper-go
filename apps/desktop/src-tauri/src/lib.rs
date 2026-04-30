@@ -202,9 +202,22 @@ mod tests {
     fn app_registers_recognition_language_commands() {
         let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
             .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let generate_handler_block = production_source
+            .split(".invoke_handler(tauri::generate_handler![")
+            .nth(1)
+            .and_then(|source| source.split("])").next())
+            .expect("tauri generate_handler block");
 
-        assert!(source.contains("recognition_language"));
-        assert!(source.contains("set_recognition_language"));
+        assert!(generate_handler_block
+            .lines()
+            .any(|line| line.trim().trim_end_matches(',') == "recognition_language"));
+        assert!(generate_handler_block
+            .lines()
+            .any(|line| line.trim().trim_end_matches(',') == "set_recognition_language"));
     }
 
     #[test]

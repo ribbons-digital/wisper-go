@@ -4,6 +4,7 @@ import type {
   AudioInputDevice,
   LocalModelSettings,
   MicrophoneStatus,
+  RecognitionLanguage,
   RecordingMode,
   StopRecordingOutput,
 } from "../types/pipeline";
@@ -68,4 +69,18 @@ export async function setLocalModelSettings(
   settings: LocalModelSettings,
 ): Promise<LocalModelSettings> {
   return invoke<LocalModelSettings>("set_local_model_settings", { settings });
+}
+
+export async function recognitionLanguage(): Promise<RecognitionLanguage> {
+  return invoke<RecognitionLanguage>("recognition_language");
+}
+
+export async function setRecognitionLanguage(
+  language: RecognitionLanguage,
+): Promise<RecognitionLanguage> {
+  return invoke<RecognitionLanguage>("set_recognition_language", { language });
+}
+
+export async function setLanguageMenuOpen(open: boolean): Promise<void> {
+  await invoke("set_language_menu_open", { open });
 }

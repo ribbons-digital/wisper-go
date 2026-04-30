@@ -34,6 +34,7 @@ vi.mock("../lib/tauriApi", () => ({
   localModelSettings: vi.fn().mockResolvedValue({
     whisperBinaryPath: "/usr/local/bin/whisper-cli",
     whisperModelPath: "/models/base.bin",
+    recognitionLanguage: "auto",
   }),
   listMicrophones: vi.fn().mockResolvedValue([
     { id: "default", name: "System Default", isDefault: true },
@@ -74,6 +75,7 @@ describe("App", () => {
     vi.mocked(localModelSettings).mockResolvedValue({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      recognitionLanguage: "auto",
     });
     vi.mocked(listMicrophones).mockResolvedValue([
       { id: "default", name: "System Default", isDefault: true },
@@ -161,6 +163,7 @@ describe("App", () => {
     expect(setLocalModelSettings).toHaveBeenCalledWith({
       whisperBinaryPath: "/opt/homebrew/bin/whisper-cli",
       whisperModelPath: "/models/small.bin",
+      recognitionLanguage: "auto",
     });
   });
 

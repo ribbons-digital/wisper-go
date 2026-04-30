@@ -49,6 +49,7 @@ export function App() {
   const [modelSettings, setModelSettings] = useState<LocalModelSettings>({
     whisperBinaryPath: "",
     whisperModelPath: "",
+    recognitionLanguage: "auto",
   });
   const [lastInsert, setLastInsert] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -167,7 +168,11 @@ export function App() {
       })
       .catch(() => {
         if (mounted) {
-          setModelSettings({ whisperBinaryPath: "", whisperModelPath: "" });
+          setModelSettings({
+            whisperBinaryPath: "",
+            whisperModelPath: "",
+            recognitionLanguage: "auto",
+          });
         }
       });
 

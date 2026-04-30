@@ -78,6 +78,22 @@ export function SettingsPanel({
             }
           />
         </label>
+        <label>
+          Recognition language
+          <select
+            value={draftModelSettings.recognitionLanguage}
+            onChange={(event) =>
+              setDraftModelSettings((current) => ({
+                ...current,
+                recognitionLanguage: event.target.value as LocalModelSettings["recognitionLanguage"],
+              }))
+            }
+          >
+            <option value="auto">Auto</option>
+            <option value="en">English</option>
+            <option value="zh">Chinese</option>
+          </select>
+        </label>
         <button type="button" onClick={() => onModelSettingsSave(draftModelSettings)}>
           Save model settings
         </button>

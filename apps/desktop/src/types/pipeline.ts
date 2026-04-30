@@ -25,9 +25,12 @@ export type MicrophoneStatus = {
   canPrompt: boolean;
 };
 
+export type RecognitionLanguage = "auto" | "en" | "zh";
+
 export type LocalModelSettings = {
   whisperBinaryPath: string;
   whisperModelPath: string;
+  recognitionLanguage: RecognitionLanguage;
 };
 
 export type CommandAction =

@@ -252,9 +252,17 @@ mod tests {
 
         assert!(styles.contains("padding: 7px 8px;"));
         assert!(styles.contains("height: 48px;"));
+        let floating_recorder_styles = styles
+            .split(".floating-recorder {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("floating recorder styles exist");
+
         assert!(styles.contains("border-radius: 24px;"));
         assert!(styles.contains("html[data-surface=\"recorder\"] .app-shell"));
         assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder"));
+        assert!(floating_recorder_styles.contains("box-shadow: none;"));
+        assert!(!floating_recorder_styles.contains("box-shadow: 0"));
     }
 
     #[test]
@@ -268,10 +276,12 @@ mod tests {
         let package = fs::read_to_string(root_dir.join("package.json")).expect("package json");
         let sign_script = fs::read_to_string(root_dir.join("scripts/sign-macos-app.sh"))
             .expect("stable macOS signing script");
-        let ensure_script = fs::read_to_string(root_dir.join("scripts/ensure-local-codesign-cert.sh"))
-            .expect("local macOS code-signing identity script");
-        let trust_script = fs::read_to_string(root_dir.join("scripts/trust-local-codesign-cert.sh"))
-            .expect("local macOS code-signing trust script");
+        let ensure_script =
+            fs::read_to_string(root_dir.join("scripts/ensure-local-codesign-cert.sh"))
+                .expect("local macOS code-signing identity script");
+        let trust_script =
+            fs::read_to_string(root_dir.join("scripts/trust-local-codesign-cert.sh"))
+                .expect("local macOS code-signing trust script");
 
         assert!(package.contains("scripts/ensure-local-codesign-cert.sh"));
         assert!(package.contains("scripts/sign-macos-app.sh"));

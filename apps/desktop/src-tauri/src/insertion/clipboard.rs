@@ -214,16 +214,15 @@ impl PasteSimulator for SystemPaste {
     fn paste(&self) -> Result<(), String> {
         use enigo::{
             Direction::{Click, Press, Release},
-            Enigo, Key, Keyboard,
+            Enigo, Keyboard,
         };
 
         let settings = paste_settings();
         let mut enigo = Enigo::new(&settings).map_err(|err| err.to_string())?;
         let modifier = paste_modifier_key();
+        let paste_key = paste_key();
         enigo.key(modifier, Press).map_err(|err| err.to_string())?;
-        let paste_result = enigo
-            .key(Key::Unicode('v'), Click)
-            .map_err(|err| err.to_string());
+        let paste_result = enigo.key(paste_key, Click).map_err(|err| err.to_string());
         let release_result = enigo.key(modifier, Release).map_err(|err| err.to_string());
         paste_result.and(release_result)
     }
@@ -244,6 +243,16 @@ fn paste_modifier_key() -> enigo::Key {
 #[cfg(not(target_os = "macos"))]
 fn paste_modifier_key() -> enigo::Key {
     enigo::Key::Control
+}
+
+#[cfg(target_os = "macos")]
+fn paste_key() -> enigo::Key {
+    enigo::Key::Other(0x09)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn paste_key() -> enigo::Key {
+    enigo::Key::Unicode('v')
 }
 
 #[cfg(target_os = "macos")]
@@ -827,6 +836,12 @@ mod tests {
                 direct_insert: false,
             }
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn system_paste_uses_layout_independent_v_key_on_macos() {
+        assert_eq!(super::paste_key(), enigo::Key::Other(0x09));
     }
 
     #[test]

@@ -23,6 +23,11 @@ fn app_health() -> &'static str {
     "ok"
 }
 
+#[tauri::command]
+fn set_language_menu_open(app: tauri::AppHandle, open: bool) -> Result<(), String> {
+    position_language_window(&app, open).map_err(|err| err.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -34,6 +39,7 @@ pub fn run() {
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
             position_recorder_window(app.handle());
+            position_language_window(app.handle(), false)?;
             if recorder_window_ignores_cursor_events() {
                 if let Some(window) = app.get_webview_window("recorder") {
                     let _ = window.set_ignore_cursor_events(true);
@@ -67,7 +73,8 @@ pub fn run() {
             local_model_settings,
             set_local_model_settings,
             recognition_language,
-            set_recognition_language
+            set_recognition_language,
+            set_language_menu_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -153,6 +160,14 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+const FLOATING_BOTTOM_MARGIN: i32 = 88;
+const FLOATING_GAP: i32 = 8;
+const RECORDER_WINDOW_WIDTH: u32 = 320;
+const LANGUAGE_CLOSED_WIDTH: u32 = 74;
+const LANGUAGE_CLOSED_HEIGHT: u32 = 52;
+const LANGUAGE_OPEN_WIDTH: u32 = 260;
+const LANGUAGE_OPEN_HEIGHT: u32 = 190;
+
 fn position_recorder_window(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("recorder") else {
         return;
@@ -172,10 +187,49 @@ fn position_recorder_window(app: &tauri::AppHandle) {
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
     let x = monitor_position.x + (monitor_size.width as i32 - window_size.width as i32) / 2;
-    let y = monitor_position.y + monitor_size.height as i32 - window_size.height as i32 - 88;
+    let y = monitor_position.y + monitor_size.height as i32
+        - window_size.height as i32
+        - FLOATING_BOTTOM_MARGIN;
     let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         x, y,
     )));
+}
+
+fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window("language") else {
+        return Ok(());
+    };
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+
+    let (width, height) = if open {
+        (LANGUAGE_OPEN_WIDTH, LANGUAGE_OPEN_HEIGHT)
+    } else {
+        (LANGUAGE_CLOSED_WIDTH, LANGUAGE_CLOSED_HEIGHT)
+    };
+
+    window.set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+        width, height,
+    )))?;
+
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let recorder_x =
+        monitor_position.x + (monitor_size.width as i32 - RECORDER_WINDOW_WIDTH as i32) / 2;
+    let x = recorder_x - FLOATING_GAP - width as i32;
+    let y =
+        monitor_position.y + monitor_size.height as i32 - height as i32 - FLOATING_BOTTOM_MARGIN;
+
+    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x, y,
+    )))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -235,6 +289,37 @@ mod tests {
 
         assert_eq!(recorder["focus"].as_bool(), Some(false));
         assert_eq!(recorder["focusable"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn language_window_is_configured_as_separate_interactive_surface() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("tauri config");
+        let config: Value = serde_json::from_str(&config).expect("valid tauri config json");
+        let language = config["app"]["windows"]
+            .as_array()
+            .expect("windows array")
+            .iter()
+            .find(|window| window["label"].as_str() == Some("language"))
+            .expect("language window configured");
+
+        assert_eq!(language["url"].as_str(), Some("/?surface=language"));
+        assert_eq!(language["transparent"].as_bool(), Some(true));
+        assert_eq!(language["backgroundColor"].as_str(), Some("#00000000"));
+        assert_eq!(language["decorations"].as_bool(), Some(false));
+        assert_eq!(language["alwaysOnTop"].as_bool(), Some(true));
+        assert_eq!(language["focus"].as_bool(), Some(false));
+        assert_eq!(language["focusable"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn default_capability_includes_language_window() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let capability = fs::read_to_string(manifest_dir.join("capabilities/default.json"))
+            .expect("default capability");
+
+        assert!(capability.contains("\"language\""));
     }
 
     #[test]

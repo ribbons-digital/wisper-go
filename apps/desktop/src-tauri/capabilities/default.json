@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capability for the Wispergo desktop window",
-  "windows": ["main", "recorder"],
+  "windows": ["main", "recorder", "language"],
   "permissions": ["core:default", "core:event:default", "core:window:default"]
 }

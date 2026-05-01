@@ -2,6 +2,7 @@ pub mod audio;
 pub mod domain;
 pub mod fallback;
 pub mod intent;
+pub mod llama_server;
 pub mod ollama;
 pub mod pipeline;
 pub mod privacy;

@@ -1,0 +1,21 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Globe icon</title>
+  <desc>A white globe icon on a transparent background.</desc>
+
+  <!-- Outer globe -->
+  <circle cx="512" cy="512" r="344" stroke="white" stroke-width="56"/>
+
+  <!-- Longitude curves -->
+  <path d="M512 168C407 267 352 388 352 512C352 636 407 757 512 856"
+        stroke="white" stroke-width="48" stroke-linecap="round"/>
+  <path d="M512 168C617 267 672 388 672 512C672 636 617 757 512 856"
+        stroke="white" stroke-width="48" stroke-linecap="round"/>
+
+  <!-- Latitude curves -->
+  <path d="M232 352C313 395 410 418 512 418C614 418 711 395 792 352"
+        stroke="white" stroke-width="48" stroke-linecap="round"/>
+  <path d="M202 512H822"
+        stroke="white" stroke-width="48" stroke-linecap="round"/>
+  <path d="M232 672C313 629 410 606 512 606C614 606 711 629 792 672"
+        stroke="white" stroke-width="48" stroke-linecap="round"/>
+</svg>

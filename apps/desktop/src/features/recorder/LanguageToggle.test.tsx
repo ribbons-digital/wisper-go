@@ -10,7 +10,7 @@ const languages = [
 ] as const;
 
 describe("LanguageToggle", () => {
-  it("shows a globe for automatic language detection", () => {
+  it("shows the custom globe icon for automatic language detection", () => {
     render(
       <LanguageToggle
         language="auto"
@@ -22,7 +22,13 @@ describe("LanguageToggle", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Recognition language: Auto" })).toHaveTextContent("🌐");
+    const button = screen.getByRole("button", { name: "Recognition language: Auto" });
+    const icon = button.querySelector("img.language-current-icon");
+
+    expect(button).not.toHaveTextContent("🌐");
+    expect(icon).not.toBeNull();
+    expect(icon).toHaveAttribute("src", expect.stringContaining("globe_icon_white_transparent.svg"));
+    expect(icon).toHaveAttribute("aria-hidden", "true");
   });
 
   it("shows two-letter language codes for explicit languages", () => {

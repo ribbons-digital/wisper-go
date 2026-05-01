@@ -1,5 +1,7 @@
 import type { RecognitionLanguage } from "../../types/pipeline";
 
+const GLOBE_ICON_URL = new URL("../../assets/globe_icon_white_transparent.svg", import.meta.url).href;
+
 type LanguageOption = {
   value: RecognitionLanguage;
   label: string;
@@ -92,7 +94,7 @@ export function LanguageToggle({
 
 function languageIndicator(language: RecognitionLanguage) {
   if (language === "auto") {
-    return "🌐";
+    return <img className="language-current-icon" src={GLOBE_ICON_URL} alt="" aria-hidden="true" />;
   }
   return language.toUpperCase();
 }

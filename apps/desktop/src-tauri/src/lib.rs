@@ -465,7 +465,8 @@ mod tests {
         assert_eq!(language["decorations"].as_bool(), Some(false));
         assert_eq!(language["alwaysOnTop"].as_bool(), Some(true));
         assert_eq!(language["focus"].as_bool(), Some(false));
-        assert_eq!(language["focusable"].as_bool(), Some(false));
+        assert_eq!(language["focusable"].as_bool(), Some(true));
+        assert_eq!(language["acceptFirstMouse"].as_bool(), Some(true));
     }
 
     #[test]

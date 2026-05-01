@@ -53,7 +53,7 @@
         "resizable": false,
         "skipTaskbar": true,
         "focus": false,
-        "focusable": false,
+        "focusable": true,
         "visible": true,
         "visibleOnAllWorkspaces": true,
         "acceptFirstMouse": true

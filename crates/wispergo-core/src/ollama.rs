@@ -3,7 +3,9 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::domain::PipelineResult;
-use crate::providers::{CleanupInput, CleanupOutput, CleanupProvider, ProviderError};
+use crate::providers::{
+    CleanupInput, CleanupOutput, CleanupProvider, ProviderError, TextCleanupProvider,
+};
 
 pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:0.5b";
 
@@ -46,11 +48,11 @@ impl OllamaCleanupProvider {
             })??;
         Ok(())
     }
+}
 
-    pub async fn clean_punctuation_only(
-        &self,
-        input: CleanupInput,
-    ) -> Result<String, ProviderError> {
+#[async_trait]
+impl TextCleanupProvider for OllamaCleanupProvider {
+    async fn clean_punctuation_only(&self, input: CleanupInput) -> Result<String, ProviderError> {
         let request = OllamaChatRequest {
             model: self.model.clone(),
             stream: false,

@@ -105,6 +105,11 @@ pub trait CleanupProvider: Send + Sync {
     async fn clean(&self, input: CleanupInput) -> Result<CleanupOutput, ProviderError>;
 }
 
+#[async_trait]
+pub trait TextCleanupProvider: CleanupProvider {
+    async fn clean_punctuation_only(&self, input: CleanupInput) -> Result<String, ProviderError>;
+}
+
 #[derive(Debug, Clone)]
 pub struct FakeAsrProvider {
     response: Result<AsrOutput, ProviderError>,
@@ -155,5 +160,54 @@ impl FakeCleanupProvider {
 impl CleanupProvider for FakeCleanupProvider {
     async fn clean(&self, _input: CleanupInput) -> Result<CleanupOutput, ProviderError> {
         self.response.clone()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FakeTextCleanupProvider {
+    punctuation_response: Result<String, ProviderError>,
+    cleanup_response: Result<CleanupOutput, ProviderError>,
+    punctuation_calls: Option<Arc<Mutex<usize>>>,
+}
+
+impl FakeTextCleanupProvider {
+    pub fn new(
+        punctuation_response: Result<String, ProviderError>,
+        cleanup_response: Result<CleanupOutput, ProviderError>,
+    ) -> Self {
+        Self {
+            punctuation_response,
+            cleanup_response,
+            punctuation_calls: None,
+        }
+    }
+
+    pub fn with_punctuation_counter(
+        punctuation_response: Result<String, ProviderError>,
+        cleanup_response: Result<CleanupOutput, ProviderError>,
+        punctuation_calls: Arc<Mutex<usize>>,
+    ) -> Self {
+        Self {
+            punctuation_response,
+            cleanup_response,
+            punctuation_calls: Some(punctuation_calls),
+        }
+    }
+}
+
+#[async_trait]
+impl CleanupProvider for FakeTextCleanupProvider {
+    async fn clean(&self, _input: CleanupInput) -> Result<CleanupOutput, ProviderError> {
+        self.cleanup_response.clone()
+    }
+}
+
+#[async_trait]
+impl TextCleanupProvider for FakeTextCleanupProvider {
+    async fn clean_punctuation_only(&self, _input: CleanupInput) -> Result<String, ProviderError> {
+        if let Some(calls) = &self.punctuation_calls {
+            *calls.lock().expect("fake text cleanup counter lock") += 1;
+        }
+        self.punctuation_response.clone()
     }
 }

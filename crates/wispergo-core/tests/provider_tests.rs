@@ -4,7 +4,7 @@ use std::time::Duration;
 use wispergo_core::domain::{CommandAction, CommandSource, PipelineResult, ProviderSource};
 use wispergo_core::providers::{
     AsrOutput, AsrProvider, CleanupInput, CleanupOutput, CleanupProvider, FakeAsrProvider,
-    FakeCleanupProvider, ProviderError,
+    FakeCleanupProvider, FakeTextCleanupProvider, ProviderError, TextCleanupProvider,
 };
 
 #[tokio::test]
@@ -44,6 +44,31 @@ async fn fake_cleanup_returns_structured_result() {
         .expect("cleanup output");
 
     assert!(matches!(result.result, PipelineResult::Command { .. }));
+}
+
+#[tokio::test]
+async fn fake_text_cleanup_returns_plain_punctuation_response() {
+    let provider = FakeTextCleanupProvider::new(
+        Ok("Hello, world.".to_string()),
+        Ok(CleanupOutput {
+            result: PipelineResult::InsertText {
+                text: "Hello, world.".to_string(),
+                source: ProviderSource::Local,
+                confidence: None,
+            },
+        }),
+    );
+
+    let output = provider
+        .clean_punctuation_only(CleanupInput {
+            transcript: "hello world".to_string(),
+            selected_text: None,
+            timeout: Duration::from_millis(500),
+        })
+        .await
+        .expect("punctuation output");
+
+    assert_eq!(output, "Hello, world.");
 }
 
 #[tokio::test]

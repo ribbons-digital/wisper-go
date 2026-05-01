@@ -5,7 +5,7 @@ use wispergo_core::domain::{CommandAction, CommandSource, PipelineResult};
 use wispergo_core::ollama::{
     parse_cleanup_json, parse_punctuation_cleanup_text, OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL,
 };
-use wispergo_core::providers::{CleanupInput, CleanupProvider, ProviderError};
+use wispergo_core::providers::{CleanupInput, CleanupProvider, ProviderError, TextCleanupProvider};
 
 #[test]
 fn parses_valid_insert_text_fixture() {

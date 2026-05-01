@@ -19,10 +19,10 @@ import {
   stopRecording,
 } from "../lib/tauriApi";
 
-const eventListeners = new Map<string, (event: { payload: string }) => void>();
+const eventListeners = new Map<string, (event: { payload: unknown }) => void>();
 
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn((eventName: string, callback: (event: { payload: string }) => void) => {
+  listen: vi.fn((eventName: string, callback: (event: { payload: unknown }) => void) => {
     eventListeners.set(eventName, callback);
     return Promise.resolve(() => {
       eventListeners.delete(eventName);
@@ -456,6 +456,21 @@ describe("App", () => {
     expect(selectedMicrophoneId).not.toHaveBeenCalled();
   });
 
+  it("reveals the language chevron from native hover while the app is inactive", async () => {
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "Recognition language: Auto" });
+    const toggle = button.closest(".language-toggle");
+    expect(toggle).not.toHaveClass("is-native-hovered");
+
+    await emitLanguageHover(true);
+    expect(toggle).toHaveClass("is-native-hovered");
+
+    await emitLanguageHover(false);
+    expect(toggle).not.toHaveClass("is-native-hovered");
+  });
+
   it("refreshes microphone devices while settings are open", async () => {
     vi.useFakeTimers();
     vi.mocked(listMicrophones)
@@ -486,6 +501,15 @@ async function emitRecordShortcut(payload: string) {
   });
   await act(async () => {
     eventListeners.get("wispergo://record-shortcut")?.({ payload });
+  });
+}
+
+async function emitLanguageHover(payload: boolean) {
+  await waitFor(() => {
+    expect(eventListeners.has("wispergo://language-hover-changed")).toBe(true);
+  });
+  await act(async () => {
+    eventListeners.get("wispergo://language-hover-changed")?.({ payload });
   });
 }
 

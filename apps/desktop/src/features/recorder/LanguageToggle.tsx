@@ -9,29 +9,44 @@ type Props = {
   language: RecognitionLanguage;
   languages: readonly LanguageOption[];
   menuOpen: boolean;
+  nativeHovered?: boolean;
   onCycle: () => void;
   onSelect: (language: RecognitionLanguage) => void;
   onMenuOpenChange: (open: boolean) => void;
+  onNativeHoverEnd?: () => void;
 };
 
 export function LanguageToggle({
   language,
   languages,
   menuOpen,
+  nativeHovered = false,
   onCycle,
   onSelect,
   onMenuOpenChange,
+  onNativeHoverEnd,
 }: Props) {
   const current = languages.find((option) => option.value === language) ?? languages[0];
 
   function closeMenuOnHoverOff() {
+    if (nativeHovered) {
+      onNativeHoverEnd?.();
+    }
     if (menuOpen) {
       onMenuOpenChange(false);
     }
   }
 
+  const className = [
+    "language-toggle",
+    menuOpen ? "is-open" : null,
+    nativeHovered ? "is-native-hovered" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className={menuOpen ? "language-toggle is-open" : "language-toggle"} onMouseLeave={closeMenuOnHoverOff}>
+    <div className={className} onMouseLeave={closeMenuOnHoverOff}>
       {menuOpen ? (
         <div className="language-menu" role="menu" aria-label="Recognition language">
           {languages.map((option) => {

@@ -41,6 +41,7 @@ pub fn run() {
             position_recorder_window(app.handle());
             position_language_window(app.handle(), false)?;
             configure_language_window_for_hover_tracking(app.handle());
+            install_language_inactive_hover_monitor(app.handle());
             if recorder_window_ignores_cursor_events() {
                 if let Some(window) = app.get_webview_window("recorder") {
                     let _ = window.set_ignore_cursor_events(true);
@@ -187,6 +188,180 @@ fn enable_mouse_moved_events(window: &tauri::WebviewWindow) {
 
 #[cfg(not(target_os = "macos"))]
 fn enable_mouse_moved_events(_window: &tauri::WebviewWindow) {}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+#[repr(C)]
+struct MacosPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
+    use std::ffi::{c_char, c_void};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    use block2::RcBlock;
+
+    const NS_MOUSE_MOVED_MASK: usize = 1 << 5;
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_add_global_monitor(
+            receiver: *mut c_void,
+            selector: *mut c_void,
+            mask: usize,
+            handler: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    let Some(window) = app.get_webview_window("language") else {
+        return;
+    };
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+
+    let app = app.clone();
+    let language_window = window.clone();
+    let hover_inside = Arc::new(AtomicBool::new(false));
+    let ns_window = ns_window as usize;
+    let handler = RcBlock::new(move |_event: *mut c_void| {
+        let ns_window = ns_window as *mut c_void;
+        let inside = unsafe { cursor_is_inside_window(ns_window, &language_window) };
+        let was_inside = hover_inside.swap(inside, Ordering::SeqCst);
+        if was_inside == inside {
+            return;
+        }
+
+        if inside {
+            unsafe { activate_language_window_on_hover(ns_window) };
+        }
+        let _ = app.emit("wispergo://language-hover-changed", inside);
+    });
+
+    // The monitor is app-lifetime. Leak our retain so the block remains valid even if AppKit
+    // does not synchronously copy it before this setup function returns.
+    let handler = RcBlock::into_raw(handler);
+
+    unsafe {
+        let event_class = objc_getClass(b"NSEvent\0".as_ptr().cast());
+        let selector = sel_registerName(
+            b"addGlobalMonitorForEventsMatchingMask:handler:\0"
+                .as_ptr()
+                .cast(),
+        );
+        if event_class.is_null() || selector.is_null() {
+            return;
+        }
+        let _monitor = objc_msg_send_add_global_monitor(
+            event_class,
+            selector,
+            NS_MOUSE_MOVED_MASK,
+            handler.cast(),
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_language_inactive_hover_monitor(_app: &tauri::AppHandle) {}
+
+#[cfg(target_os = "macos")]
+unsafe fn cursor_is_inside_window(
+    ns_window: *mut std::ffi::c_void,
+    language_window: &tauri::WebviewWindow,
+) -> bool {
+    use std::ffi::{c_char, c_void};
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_mouse_location(receiver: *mut c_void, selector: *mut c_void)
+            -> MacosPoint;
+    }
+
+    let mouse_location_selector =
+        unsafe { sel_registerName(b"mouseLocationOutsideOfEventStream\0".as_ptr().cast()) };
+    if mouse_location_selector.is_null() {
+        return false;
+    }
+
+    let mouse = unsafe { objc_msg_send_mouse_location(ns_window, mouse_location_selector) };
+    let Ok(size) = language_window.outer_size() else {
+        return false;
+    };
+    let scale_factor = language_window.scale_factor().unwrap_or(1.0).max(1.0);
+    let width = size.width as f64 / scale_factor;
+    let height = size.height as f64 / scale_factor;
+
+    mouse.x >= 0.0 && mouse.x <= width && mouse.y >= 0.0 && mouse.y <= height
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn activate_language_window_on_hover(ns_window: *mut std::ffi::c_void) {
+    use std::ffi::{c_char, c_void};
+
+    use objc2::runtime::Bool;
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_shared_application(
+            receiver: *mut c_void,
+            selector: *mut c_void,
+        ) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_activate_ignoring_other_apps(
+            receiver: *mut c_void,
+            selector: *mut c_void,
+            ignore_other_apps: Bool,
+        );
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_make_key_window(receiver: *mut c_void, selector: *mut c_void);
+    }
+
+    let app_class = unsafe { objc_getClass(b"NSApplication\0".as_ptr().cast()) };
+    let shared_selector = unsafe { sel_registerName(b"sharedApplication\0".as_ptr().cast()) };
+    let activate_selector =
+        unsafe { sel_registerName(b"activateIgnoringOtherApps:\0".as_ptr().cast()) };
+    let make_key_selector = unsafe { sel_registerName(b"makeKeyWindow\0".as_ptr().cast()) };
+    if app_class.is_null()
+        || shared_selector.is_null()
+        || activate_selector.is_null()
+        || make_key_selector.is_null()
+    {
+        return;
+    }
+
+    let shared_app = unsafe { objc_msg_send_shared_application(app_class, shared_selector) };
+    if shared_app.is_null() {
+        return;
+    }
+    unsafe {
+        objc_msg_send_activate_ignoring_other_apps(shared_app, activate_selector, Bool::YES);
+        objc_msg_send_make_key_window(ns_window, make_key_selector);
+    }
+}
 
 const FLOATING_BOTTOM_MARGIN: f64 = 88.0;
 const FLOATING_GAP: f64 = 8.0;
@@ -447,6 +622,23 @@ mod tests {
     }
 
     #[test]
+    fn language_window_reports_hover_while_app_is_inactive() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source.contains("install_language_inactive_hover_monitor(app.handle())"));
+        assert!(production_source.contains("addGlobalMonitorForEventsMatchingMask:handler:"));
+        assert!(production_source.contains("mouseLocationOutsideOfEventStream"));
+        assert!(production_source.contains("activateIgnoringOtherApps:"));
+        assert!(production_source.contains("wispergo://language-hover-changed"));
+        assert!(!production_source.contains("objc_msg_send_frame"));
+    }
+
+    #[test]
     fn language_window_is_configured_as_separate_interactive_surface() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let config =
@@ -574,6 +766,7 @@ mod tests {
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
         assert!(styles.contains(".language-toggle:hover .language-chevron"));
+        assert!(styles.contains(".language-toggle.is-native-hovered .language-chevron"));
         assert!(styles.contains(".language-toggle.is-open .language-chevron"));
         assert!(
             !styles.contains(".language-toggle:focus-within .language-chevron"),

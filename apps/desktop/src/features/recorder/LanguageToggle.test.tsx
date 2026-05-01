@@ -101,4 +101,44 @@ describe("LanguageToggle", () => {
 
     expect(onSelect).toHaveBeenCalledWith("zh");
   });
+
+  it("marks the control hovered when native inactive-window tracking enters", () => {
+    const { container } = render(
+      <LanguageToggle
+        language="auto"
+        languages={languages}
+        menuOpen={false}
+        nativeHovered
+        onCycle={vi.fn()}
+        onSelect={vi.fn()}
+        onMenuOpenChange={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector(".language-toggle")).toHaveClass("is-native-hovered");
+  });
+
+  it("clears native inactive-window hover when the active WebView sees mouse leave", async () => {
+    const user = userEvent.setup();
+    const onNativeHoverEnd = vi.fn();
+    const { container } = render(
+      <LanguageToggle
+        language="auto"
+        languages={languages}
+        menuOpen={false}
+        nativeHovered
+        onCycle={vi.fn()}
+        onSelect={vi.fn()}
+        onMenuOpenChange={vi.fn()}
+        onNativeHoverEnd={onNativeHoverEnd}
+      />,
+    );
+    const toggle = container.querySelector(".language-toggle");
+    expect(toggle).not.toBeNull();
+
+    await user.hover(toggle as Element);
+    await user.unhover(toggle as Element);
+
+    expect(onNativeHoverEnd).toHaveBeenCalled();
+  });
 });

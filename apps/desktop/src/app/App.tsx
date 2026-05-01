@@ -63,6 +63,7 @@ export function App() {
     recognitionLanguage: "auto",
   });
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
+  const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState<PermissionRequest | null>(null);
@@ -72,6 +73,7 @@ export function App() {
   const pendingRef = useRef(false);
   const microphoneRef = useRef<MicrophoneStatus>(initialMicrophoneStatus);
   const microphoneDowngradeGraceUntilRef = useRef(0);
+  const languageMenuOpenRef = useRef(false);
   const holdDownRef = useRef(false);
   const queuedStopAfterStartRef = useRef(false);
 
@@ -83,6 +85,10 @@ export function App() {
       delete document.body.dataset.surface;
     };
   }, [surface]);
+
+  useEffect(() => {
+    languageMenuOpenRef.current = languageMenuOpen;
+  }, [languageMenuOpen]);
 
   useEffect(() => {
     let mounted = true;
@@ -110,6 +116,29 @@ export function App() {
       void unlisten.then((unsubscribe) => unsubscribe());
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLanguageSurface) {
+      return;
+    }
+
+    let mounted = true;
+    const unlisten = listen<boolean>("wispergo://language-hover-changed", (event) => {
+      if (!mounted) {
+        return;
+      }
+
+      setLanguageNativeHovered(event.payload);
+      if (!event.payload && languageMenuOpenRef.current) {
+        updateLanguageMenuOpen(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, [isLanguageSurface]);
 
   useEffect(() => {
     let mounted = true;
@@ -455,12 +484,14 @@ export function App() {
           language={modelSettings.recognitionLanguage}
           languages={RECOGNITION_LANGUAGES}
           menuOpen={languageMenuOpen}
+          nativeHovered={languageNativeHovered}
           onCycle={() => updateRecognitionLanguage(nextRecognitionLanguage(modelSettings.recognitionLanguage))}
           onSelect={(language) => {
             updateRecognitionLanguage(language);
             updateLanguageMenuOpen(false);
           }}
           onMenuOpenChange={updateLanguageMenuOpen}
+          onNativeHoverEnd={() => setLanguageNativeHovered(false)}
         />
       ) : null}
       {lastInsert ? (

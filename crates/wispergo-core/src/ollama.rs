@@ -142,7 +142,7 @@ impl OllamaCleanupProvider {
 }
 
 pub fn parse_punctuation_cleanup_text(input: &str) -> Result<String, ProviderError> {
-    let text = input.trim();
+    let text = strip_echoed_transcript_label(input.trim()).trim();
     if text.is_empty() {
         return Err(ProviderError::InvalidOutput {
             provider: "ollama".to_string(),
@@ -151,6 +151,14 @@ pub fn parse_punctuation_cleanup_text(input: &str) -> Result<String, ProviderErr
     }
 
     Ok(text.to_string())
+}
+
+fn strip_echoed_transcript_label(text: &str) -> &str {
+    if text.to_ascii_lowercase().starts_with("transcript:") {
+        &text["transcript:".len()..]
+    } else {
+        text
+    }
 }
 
 pub fn parse_cleanup_json(input: &str) -> Result<CleanupOutput, ProviderError> {

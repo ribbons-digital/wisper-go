@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use httpmock::prelude::*;
 use wispergo_core::domain::{PipelineResult, ProviderSource};
-use wispergo_core::llama_server::{LlamaServerCleanupProvider, DEFAULT_LLAMA_SERVER_MODEL};
+use wispergo_core::llama_server::{
+    parse_punctuation_cleanup_text, LlamaServerCleanupProvider, DEFAULT_LLAMA_SERVER_MODEL,
+};
 use wispergo_core::providers::{CleanupInput, CleanupProvider, ProviderError, TextCleanupProvider};
 
 #[tokio::test]
@@ -44,6 +46,14 @@ async fn calls_openai_chat_endpoint_for_punctuation_cleanup() {
         .expect("punctuation cleanup output");
 
     mock.assert();
+    assert_eq!(output, "Hello, world.");
+}
+
+#[test]
+fn strips_echoed_transcript_label_from_punctuation_cleanup_output() {
+    let output = parse_punctuation_cleanup_text("Transcript: Hello, world.")
+        .expect("parse punctuation response");
+
     assert_eq!(output, "Hello, world.");
 }
 

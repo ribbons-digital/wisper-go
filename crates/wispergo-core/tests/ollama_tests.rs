@@ -76,6 +76,14 @@ fn parses_punctuation_only_plain_text_response() {
 }
 
 #[test]
+fn strips_echoed_transcript_label_from_punctuation_cleanup_output() {
+    let output = parse_punctuation_cleanup_text("Transcript: Hello, world.")
+        .expect("parse punctuation response");
+
+    assert_eq!(output, "Hello, world.");
+}
+
+#[test]
 fn rejects_empty_punctuation_only_plain_text_response() {
     let error =
         parse_punctuation_cleanup_text(" \n ").expect_err("empty punctuation output should fail");

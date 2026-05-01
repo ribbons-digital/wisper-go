@@ -40,6 +40,7 @@ pub fn run() {
             setup_menu_bar(app)?;
             position_recorder_window(app.handle());
             position_language_window(app.handle(), false)?;
+            configure_language_window_for_hover_tracking(app.handle());
             if recorder_window_ignores_cursor_events() {
                 if let Some(window) = app.get_webview_window("recorder") {
                     let _ = window.set_ignore_cursor_events(true);
@@ -159,6 +160,33 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     }
     Ok(())
 }
+
+fn configure_language_window_for_hover_tracking(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("language") else {
+        return;
+    };
+    enable_mouse_moved_events(&window);
+}
+
+#[cfg(target_os = "macos")]
+fn enable_mouse_moved_events(window: &tauri::WebviewWindow) {
+    use objc2::{
+        msg_send,
+        runtime::{AnyObject, Bool},
+    };
+
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+    let ns_window = ns_window.cast::<AnyObject>();
+
+    unsafe {
+        let _: () = msg_send![ns_window, setAcceptsMouseMovedEvents: Bool::YES];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn enable_mouse_moved_events(_window: &tauri::WebviewWindow) {}
 
 const FLOATING_BOTTOM_MARGIN: f64 = 88.0;
 const FLOATING_GAP: f64 = 8.0;
@@ -405,6 +433,20 @@ mod tests {
     }
 
     #[test]
+    fn language_window_enables_macos_mouse_moved_events_for_hover_tracking() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source
+            .contains("configure_language_window_for_hover_tracking(app.handle())"));
+        assert!(production_source.contains("setAcceptsMouseMovedEvents:"));
+    }
+
+    #[test]
     fn language_window_is_configured_as_separate_interactive_surface() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let config =
@@ -530,12 +572,8 @@ mod tests {
         let styles =
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
-        assert!(styles.contains(".language-toggle.is-hovered .language-chevron"));
+        assert!(styles.contains(".language-toggle:hover .language-chevron"));
         assert!(styles.contains(".language-toggle.is-open .language-chevron"));
-        assert!(
-            !styles.contains(".language-toggle:hover .language-chevron"),
-            "native CSS hover can get stale in the floating Tauri window; use explicit hover state"
-        );
         assert!(
             !styles.contains(".language-toggle:focus-within .language-chevron"),
             "click focus must not keep the hover-only chevron visible after the pointer leaves"

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { LanguageToggle } from "./LanguageToggle";
@@ -59,28 +59,6 @@ describe("LanguageToggle", () => {
     expect(onCycle).toHaveBeenCalled();
   });
 
-  it("reveals the chevron only while hovered and clears it on hover off", async () => {
-    const user = userEvent.setup();
-    const { container } = render(
-      <LanguageToggle
-        language="auto"
-        languages={languages}
-        menuOpen={false}
-        onCycle={vi.fn()}
-        onSelect={vi.fn()}
-        onMenuOpenChange={vi.fn()}
-      />,
-    );
-    const toggle = container.querySelector(".language-toggle");
-    expect(toggle).not.toBeNull();
-
-    await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
-    expect(toggle).toHaveClass("is-hovered");
-
-    await user.unhover(toggle as Element);
-    expect(toggle).not.toHaveClass("is-hovered");
-  });
-
   it("closes the language menu when hovering off the control", async () => {
     const user = userEvent.setup();
     const onMenuOpenChange = vi.fn();
@@ -100,60 +78,6 @@ describe("LanguageToggle", () => {
     await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
     await user.unhover(toggle as Element);
 
-    expect(onMenuOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("clears hover and closes the menu when the pointer leaves the webview", async () => {
-    const user = userEvent.setup();
-    const onMenuOpenChange = vi.fn();
-    const { container } = render(
-      <LanguageToggle
-        language="auto"
-        languages={languages}
-        menuOpen
-        onCycle={vi.fn()}
-        onSelect={vi.fn()}
-        onMenuOpenChange={onMenuOpenChange}
-      />,
-    );
-    const toggle = container.querySelector(".language-toggle");
-    expect(toggle).not.toBeNull();
-
-    await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
-    expect(toggle).toHaveClass("is-hovered");
-
-    act(() => {
-      document.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: null }));
-    });
-
-    expect(toggle).not.toHaveClass("is-hovered");
-    expect(onMenuOpenChange).toHaveBeenCalledWith(false);
-  });
-
-  it("clears hover and closes the menu when the pointer moves into window whitespace", async () => {
-    const user = userEvent.setup();
-    const onMenuOpenChange = vi.fn();
-    const { container } = render(
-      <LanguageToggle
-        language="auto"
-        languages={languages}
-        menuOpen
-        onCycle={vi.fn()}
-        onSelect={vi.fn()}
-        onMenuOpenChange={onMenuOpenChange}
-      />,
-    );
-    const toggle = container.querySelector(".language-toggle");
-    expect(toggle).not.toBeNull();
-
-    await user.hover(screen.getByRole("button", { name: "Recognition language: Auto" }));
-    expect(toggle).toHaveClass("is-hovered");
-
-    act(() => {
-      document.body.dispatchEvent(new MouseEvent("mousemove", { bubbles: true }));
-    });
-
-    expect(toggle).not.toHaveClass("is-hovered");
     expect(onMenuOpenChange).toHaveBeenCalledWith(false);
   });
 

@@ -5,3 +5,11 @@ apps/*/dist/
 apps/*/node_modules/
 apps/*/src-tauri/gen/
 .DS_Store
+apps/desktop/src-tauri/resources/bin/macos-aarch64/*
+apps/desktop/src-tauri/resources/bin/macos-x86_64/*
+apps/desktop/src-tauri/resources/models/asr/*
+apps/desktop/src-tauri/resources/models/cleanup/*
+!apps/desktop/src-tauri/resources/bin/macos-aarch64/.gitkeep
+!apps/desktop/src-tauri/resources/bin/macos-x86_64/.gitkeep
+!apps/desktop/src-tauri/resources/models/asr/.gitkeep
+!apps/desktop/src-tauri/resources/models/cleanup/.gitkeep

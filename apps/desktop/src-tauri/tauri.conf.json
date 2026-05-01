@@ -67,6 +67,9 @@
     "active": true,
     "targets": ["app"],
     "icon": ["icons/icon.png"],
+    "resources": {
+      "resources/": ""
+    },
     "macOS": {
       "signingIdentity": "-",
       "entitlements": "Entitlements.plist"

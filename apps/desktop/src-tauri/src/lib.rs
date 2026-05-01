@@ -14,9 +14,9 @@ use commands::settings::{
     list_microphones, load_persisted_settings, local_model_settings, microphone_status,
     recognition_language, request_accessibility, request_microphone_access, selected_microphone_id,
     set_local_model_settings, set_microphone_device, set_recognition_language,
+    sync_cleanup_runtime_for_settings,
 };
 use inference::cleanup_runtime::CleanupRuntimeManager;
-use inference::resources::InferenceResourcePaths;
 use state::AppState;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
@@ -41,19 +41,11 @@ pub fn run() {
             {
                 eprintln!("settings load failed: {err}");
             }
-            let cleanup_mode = app
-                .state::<AppState>()
-                .inner()
-                .local_model_settings()
-                .cleanup_mode;
-            if cleanup_mode != state::CleanupMode::Off {
-                if let Ok(resource_root) = app.path().resource_dir() {
-                    let resources = InferenceResourcePaths::from_resource_root(resource_root);
-                    app.state::<CleanupRuntimeManager>()
-                        .inner()
-                        .start_background(resources);
-                }
-            }
+            sync_cleanup_runtime_for_settings(
+                app.handle(),
+                app.state::<CleanupRuntimeManager>().inner(),
+                &app.state::<AppState>().inner().local_model_settings(),
+            );
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
             position_recorder_window(app.handle());

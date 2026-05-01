@@ -10,8 +10,9 @@ use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 
 use crate::audio::AudioInputDevice;
 use crate::inference::cleanup_runtime::{CleanupRuntimeManager, CleanupRuntimeStatus};
+use crate::inference::resources::InferenceResourcePaths;
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
-use crate::state::{AppState, LocalModelSettings, RecognitionLanguage};
+use crate::state::{AppState, CleanupMode, LocalModelSettings, RecognitionLanguage};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
 pub const RECOGNITION_LANGUAGE_CHANGED_EVENT: &str = "wispergo://recognition-language-changed";
@@ -43,6 +44,41 @@ pub fn cleanup_runtime_status(
     cleanup_runtime: State<'_, CleanupRuntimeManager>,
 ) -> CleanupRuntimeStatus {
     cleanup_runtime.status()
+}
+
+pub fn managed_cleanup_runtime_enabled(settings: &LocalModelSettings) -> bool {
+    managed_cleanup_runtime_enabled_for_backend(
+        settings,
+        env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref(),
+    )
+}
+
+fn managed_cleanup_runtime_enabled_for_backend(
+    settings: &LocalModelSettings,
+    cleanup_backend: Option<&str>,
+) -> bool {
+    settings.cleanup_mode != CleanupMode::Off && cleanup_backend != Some("ollama")
+}
+
+pub fn sync_cleanup_runtime_for_settings(
+    app: &AppHandle,
+    cleanup_runtime: &CleanupRuntimeManager,
+    settings: &LocalModelSettings,
+) {
+    if managed_cleanup_runtime_enabled(settings) {
+        match app.path().resource_dir() {
+            Ok(resource_root) => {
+                cleanup_runtime
+                    .start_background(InferenceResourcePaths::from_resource_root(resource_root));
+            }
+            Err(err) => {
+                eprintln!("cleanup runtime resource directory unavailable: {err}");
+                cleanup_runtime.shutdown();
+            }
+        }
+    } else {
+        cleanup_runtime.shutdown();
+    }
 }
 
 #[tauri::command]
@@ -101,8 +137,10 @@ pub fn local_model_settings(state: State<'_, AppState>) -> LocalModelSettings {
 pub fn set_local_model_settings(
     app: AppHandle,
     state: State<'_, AppState>,
+    cleanup_runtime: State<'_, CleanupRuntimeManager>,
     settings: LocalModelSettings,
 ) -> Result<LocalModelSettings, String> {
+    let previous = state.local_model_settings();
     let settings = settings.normalized();
     state.set_local_model_settings(settings.clone());
     save_persisted_settings(&app, &settings)?;
@@ -111,6 +149,9 @@ pub fn set_local_model_settings(
         settings.recognition_language,
     )
     .map_err(|err| err.to_string())?;
+    if previous.cleanup_mode != settings.cleanup_mode {
+        sync_cleanup_runtime_for_settings(&app, cleanup_runtime.inner(), &settings);
+    }
     Ok(settings.to_frontend())
 }
 
@@ -352,7 +393,45 @@ fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ollama_model_installed, OllamaSetupStatus};
+    use super::{
+        managed_cleanup_runtime_enabled_for_backend, ollama_model_installed, CleanupMode,
+        LocalModelSettings, OllamaSetupStatus,
+    };
+
+    #[test]
+    fn managed_cleanup_runtime_enabled_for_punctuation_without_backend_override() {
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        assert!(managed_cleanup_runtime_enabled_for_backend(&settings, None));
+    }
+
+    #[test]
+    fn managed_cleanup_runtime_enabled_false_when_cleanup_off() {
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::Off,
+            ..LocalModelSettings::default()
+        };
+
+        assert!(!managed_cleanup_runtime_enabled_for_backend(
+            &settings, None
+        ));
+    }
+
+    #[test]
+    fn managed_cleanup_runtime_enabled_false_for_ollama_backend() {
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        assert!(!managed_cleanup_runtime_enabled_for_backend(
+            &settings,
+            Some("ollama")
+        ));
+    }
 
     #[test]
     fn detects_installed_ollama_model_from_list_output() {

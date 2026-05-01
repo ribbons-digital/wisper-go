@@ -50,6 +50,35 @@ export WISPERGO_OLLAMA_BASE_URL=http://127.0.0.1:11434
 export WISPERGO_OLLAMA_MODEL=qwen2.5:3b-instruct
 ```
 
+Bundled binaries and model files are **not committed to git**. Only the resource directories are tracked. Before building a fully offline bundle, stage the assets yourself:
+
+```text
+apps/desktop/src-tauri/resources/
+  bin/
+    macos-aarch64/
+      whisper-cli
+      llama-server
+      # llama.cpp dylibs required by llama-server
+    macos-x86_64/
+      whisper-cli
+      llama-server
+      # llama.cpp dylibs required by llama-server
+  models/
+    asr/
+      ggml-large-v3-turbo.bin
+    cleanup/
+      qwen2.5-3b-instruct-q4_k_m.gguf
+```
+
+Download sources:
+
+- `llama-server`: llama.cpp macOS release archives from <https://github.com/ggml-org/llama.cpp/releases>
+- `whisper-cli`: build/download a whisper.cpp CLI binary for each target architecture
+- ASR model: <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin>
+- Cleanup model: <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf>
+
+For local Apple Silicon testing, staging only `bin/macos-aarch64/` plus both model files is enough. For release verification, stage both `macos-aarch64` and `macos-x86_64` binaries.
+
 Build an offline release bundle with:
 
 ```bash

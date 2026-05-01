@@ -6,7 +6,7 @@ use std::thread;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
-use wispergo_core::ollama::DEFAULT_OLLAMA_MODEL;
+use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 
 use crate::audio::AudioInputDevice;
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
@@ -39,9 +39,18 @@ pub fn fallback_policy_label() -> &'static str {
 
 #[tauri::command]
 pub async fn ensure_ollama_setup() -> Result<OllamaSetupStatus, String> {
-    tauri::async_runtime::spawn_blocking(ensure_ollama_setup_blocking)
+    let status = tauri::async_runtime::spawn_blocking(ensure_ollama_setup_blocking)
         .await
-        .map_err(|err| err.to_string())?
+        .map_err(|err| err.to_string())??;
+
+    if status.cli_installed && status.server_running && status.model_installed {
+        let warm_status = status.clone();
+        tauri::async_runtime::spawn(async move {
+            warm_ollama_model(&warm_status).await;
+        });
+    }
+
+    Ok(status)
 }
 
 #[tauri::command]
@@ -152,6 +161,15 @@ fn save_persisted_settings(
     };
     let content = serde_json::to_string_pretty(&persisted).map_err(|err| err.to_string())?;
     fs::write(path, content).map_err(|err| err.to_string())
+}
+
+async fn warm_ollama_model(status: &OllamaSetupStatus) {
+    let base_url = env::var("WISPERGO_OLLAMA_BASE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
+    let provider = OllamaCleanupProvider::new(base_url, status.model.clone());
+    if let Err(err) = provider.warm(Duration::from_millis(1500)).await {
+        eprintln!("ollama warmup failed: {err}");
+    }
 }
 
 fn ensure_ollama_setup_blocking() -> Result<OllamaSetupStatus, String> {
@@ -337,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn ollama_setup_attempts_serve_and_pull_in_backend() {
+    fn ollama_setup_attempts_serve_pull_and_warm_in_backend() {
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/settings.rs"),
         )
@@ -346,6 +364,8 @@ mod tests {
         assert!(source.contains("arg(\"serve\")"));
         assert!(source.contains("arg(\"pull\")"));
         assert!(source.contains("DEFAULT_OLLAMA_MODEL"));
+        assert!(source.contains("warm_ollama_model"));
+        assert!(source.contains("Duration::from_millis(1500)"));
     }
 
     #[test]

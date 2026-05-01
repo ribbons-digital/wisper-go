@@ -166,6 +166,8 @@ Wispergo falls back to copying when the active target cannot be pasted into or a
 
 Insertion diagnostics are written to the app data directory as `insertion-diagnostics.log`.
 
+Recording performance timings are written to the app data directory as `recording-timings.log` and also printed to stderr when the app is launched from Terminal. On macOS this directory is typically under `~/Library/Application Support/com.ribbonsdigital.wispergo/`.
+
 ### Hover behavior for floating language control
 
 The language toggle is a separate Tauri window. On macOS, Wispergo uses native mouse tracking so the chevron can reveal even when another app is active. Hovering the language control may activate Wispergo by design.

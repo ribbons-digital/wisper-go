@@ -3,7 +3,7 @@ use std::time::Duration;
 use httpmock::prelude::*;
 use wispergo_core::domain::{CommandAction, CommandSource, PipelineResult};
 use wispergo_core::ollama::{
-    parse_cleanup_json, parse_punctuation_cleanup_json, OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL,
+    parse_cleanup_json, parse_punctuation_cleanup_text, OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL,
 };
 use wispergo_core::providers::{CleanupInput, CleanupProvider, ProviderError};
 
@@ -68,11 +68,19 @@ async fn calls_ollama_chat_api_and_parses_json_content() {
 }
 
 #[test]
-fn parses_punctuation_only_response_text() {
-    let output = parse_punctuation_cleanup_json(r#"{"text":"Hello, world."}"#)
-        .expect("parse punctuation response");
+fn parses_punctuation_only_plain_text_response() {
+    let output =
+        parse_punctuation_cleanup_text("  Hello, world.\n").expect("parse punctuation response");
 
     assert_eq!(output, "Hello, world.");
+}
+
+#[test]
+fn rejects_empty_punctuation_only_plain_text_response() {
+    let error =
+        parse_punctuation_cleanup_text(" \n ").expect_err("empty punctuation output should fail");
+
+    assert!(matches!(error, ProviderError::InvalidOutput { provider, .. } if provider == "ollama"));
 }
 
 #[tokio::test]
@@ -80,7 +88,7 @@ async fn calls_ollama_chat_api_for_punctuation_only_cleanup() {
     let server = MockServer::start();
     let body = serde_json::json!({
         "message": {
-            "content": r#"{"text":"Hello, world."}"#
+            "content": "Hello, world."
         }
     });
 
@@ -89,6 +97,7 @@ async fn calls_ollama_chat_api_for_punctuation_only_cleanup() {
             .path("/api/chat")
             .body_contains(DEFAULT_OLLAMA_MODEL)
             .body_contains("Punctuation-only cleanup")
+            .body_contains("Return only the corrected transcript as plain text")
             .body_contains("Preserve the exact words, language, and script")
             .body_contains("Do not translate, paraphrase")
             .body_contains("Transcript: hello world");
@@ -109,6 +118,35 @@ async fn calls_ollama_chat_api_for_punctuation_only_cleanup() {
 
     mock.assert();
     assert_eq!(output, "Hello, world.");
+}
+
+#[tokio::test]
+async fn warms_ollama_model_with_short_plain_text_probe() {
+    let server = MockServer::start();
+    let body = serde_json::json!({
+        "message": {
+            "content": "OK"
+        }
+    });
+
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/chat")
+            .body_contains(DEFAULT_OLLAMA_MODEL)
+            .body_contains("Reply with OK only")
+            .body_contains("OK");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(body);
+    });
+
+    let provider = OllamaCleanupProvider::new(server.base_url(), DEFAULT_OLLAMA_MODEL.to_string());
+    provider
+        .warm(Duration::from_secs(2))
+        .await
+        .expect("warmup should succeed");
+
+    mock.assert();
 }
 
 #[tokio::test]

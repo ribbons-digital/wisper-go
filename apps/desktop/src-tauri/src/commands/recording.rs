@@ -23,6 +23,49 @@ pub struct StopRecordingOutput {
     pub insertion: InsertionResult,
 }
 
+const PUNCTUATION_CLEANUP_TIMEOUT: Duration = Duration::from_millis(1200);
+const FULL_CLEANUP_TIMEOUT: Duration = Duration::from_secs(3);
+
+struct ProcessedRecording {
+    result: PipelineResult,
+    timings: ProcessRecordingTimings,
+}
+
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProcessRecordingTimings {
+    sample_count: usize,
+    duration_ms: u64,
+    peak: f32,
+    rms: f32,
+    capture_ms: u128,
+    trim_ms: u128,
+    asr_ms: u128,
+    cleanup_ms: u128,
+    total_ms: u128,
+    cleanup_mode: CleanupMode,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordingTimingDiagnostics {
+    timestamp_ms: u128,
+    reason: String,
+    cleanup_mode: CleanupMode,
+    sample_count: usize,
+    duration_ms: u64,
+    peak: f32,
+    rms: f32,
+    stop_ms: u128,
+    capture_ms: u128,
+    trim_ms: u128,
+    asr_ms: u128,
+    cleanup_ms: u128,
+    process_ms: u128,
+    insertion_ms: u128,
+    total_ms: u128,
+}
+
 #[tauri::command]
 pub fn start_recording(state: State<'_, AppState>, mode: String) -> Result<(), String> {
     state.start_recording(&mode)
@@ -40,8 +83,9 @@ pub async fn stop_recording(
     let stop_ms = stop_start.elapsed().as_millis();
 
     let process_start = Instant::now();
-    let result = process_recording(audio, state.local_model_settings()).await?;
+    let processed = process_recording(audio, state.local_model_settings()).await?;
     let process_ms = process_start.elapsed().as_millis();
+    let result = processed.result;
 
     let insertion_start = Instant::now();
     let insertion = match &result {
@@ -59,13 +103,28 @@ pub async fn stop_recording(
         PipelineResult::Error { message, .. } => return Err(message.clone()),
     };
     let insertion_ms = insertion_start.elapsed().as_millis();
-    eprintln!(
-        "wispergo timing: stop_recording reason={} stop_ms={} process_ms={} insertion_ms={} total_ms={}",
-        reason,
+    let total_ms = total_start.elapsed().as_millis();
+    let timing_diagnostics = RecordingTimingDiagnostics {
+        timestamp_ms: current_timestamp_ms(),
+        reason: reason.clone(),
+        cleanup_mode: processed.timings.cleanup_mode,
+        sample_count: processed.timings.sample_count,
+        duration_ms: processed.timings.duration_ms,
+        peak: processed.timings.peak,
+        rms: processed.timings.rms,
         stop_ms,
+        capture_ms: processed.timings.capture_ms,
+        trim_ms: processed.timings.trim_ms,
+        asr_ms: processed.timings.asr_ms,
+        cleanup_ms: processed.timings.cleanup_ms,
         process_ms,
         insertion_ms,
-        total_start.elapsed().as_millis()
+        total_ms,
+    };
+    log_recording_timing_diagnostics(&app, &timing_diagnostics);
+    eprintln!(
+        "wispergo timing: stop_recording reason={} stop_ms={} process_ms={} insertion_ms={} total_ms={}",
+        reason, stop_ms, process_ms, insertion_ms, total_ms
     );
 
     Ok(StopRecordingOutput { result, insertion })
@@ -95,17 +154,46 @@ fn log_insertion_diagnostics(app: &AppHandle, diagnostics: &InsertionDiagnostics
     }
 }
 
+fn log_recording_timing_diagnostics(app: &AppHandle, diagnostics: &RecordingTimingDiagnostics) {
+    let Ok(app_data_dir) = app.path().app_data_dir() else {
+        eprintln!("recording timing log failed: app data directory is unavailable");
+        return;
+    };
+
+    if let Err(err) = append_recording_timing_diagnostics(&app_data_dir, diagnostics) {
+        eprintln!("recording timing log failed: {err}");
+    }
+}
+
 fn append_insertion_diagnostics(
     app_data_dir: &Path,
     diagnostics: &InsertionDiagnostics,
 ) -> Result<PathBuf, String> {
+    append_json_line(
+        app_data_dir,
+        "insertion-diagnostics.log",
+        &InsertionDiagnosticLogRecord {
+            timestamp_ms: current_timestamp_ms(),
+            diagnostics,
+        },
+    )
+}
+
+fn append_recording_timing_diagnostics(
+    app_data_dir: &Path,
+    diagnostics: &RecordingTimingDiagnostics,
+) -> Result<PathBuf, String> {
+    append_json_line(app_data_dir, "recording-timings.log", diagnostics)
+}
+
+fn append_json_line<T: serde::Serialize>(
+    app_data_dir: &Path,
+    file_name: &str,
+    record: &T,
+) -> Result<PathBuf, String> {
     std::fs::create_dir_all(app_data_dir).map_err(|err| err.to_string())?;
-    let log_path = app_data_dir.join("insertion-diagnostics.log");
-    let record = InsertionDiagnosticLogRecord {
-        timestamp_ms: current_timestamp_ms(),
-        diagnostics,
-    };
-    let json = serde_json::to_string(&record).map_err(|err| err.to_string())?;
+    let log_path = app_data_dir.join(file_name);
+    let json = serde_json::to_string(record).map_err(|err| err.to_string())?;
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
@@ -243,8 +331,71 @@ mod tests {
         assert!(source.contains("wispergo timing: stop_recording"));
         assert!(source.contains("wispergo timing: process_recording"));
         assert!(source.contains("cleanup_mode={:?}"));
+        assert!(source.contains("recording-timings.log"));
         assert!(source
             .contains("CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await"));
+    }
+
+    #[test]
+    fn punctuation_cleanup_uses_short_timeout_and_skips_when_already_punctuated() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/recording.rs"),
+        )
+        .expect("recording source");
+
+        assert!(source.contains("PUNCTUATION_CLEANUP_TIMEOUT"));
+        assert!(source.contains("Duration::from_millis(1200)"));
+        assert!(source.contains("FULL_CLEANUP_TIMEOUT"));
+        assert!(source.contains("looks_reasonably_punctuated(&asr.transcript)"));
+    }
+
+    #[test]
+    fn detects_reasonably_punctuated_transcripts() {
+        assert!(super::looks_reasonably_punctuated("Hello, world."));
+        assert!(super::looks_reasonably_punctuated("你好世界。"));
+        assert!(super::looks_reasonably_punctuated("真的嗎？"));
+        assert!(!super::looks_reasonably_punctuated("hello world"));
+        assert!(!super::looks_reasonably_punctuated("你好世界"));
+    }
+
+    #[test]
+    fn appends_recording_timing_diagnostics_json_line() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("wispergo-timings-test-{unique}"));
+        let diagnostics = super::RecordingTimingDiagnostics {
+            timestamp_ms: 123,
+            reason: "global_shortcut".to_string(),
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            sample_count: 16_000,
+            duration_ms: 1_000,
+            peak: 0.5,
+            rms: 0.1,
+            stop_ms: 1,
+            capture_ms: 2,
+            trim_ms: 3,
+            asr_ms: 4,
+            cleanup_ms: 5,
+            process_ms: 6,
+            insertion_ms: 7,
+            total_ms: 8,
+        };
+
+        let log_path =
+            super::append_recording_timing_diagnostics(&dir, &diagnostics).expect("append");
+        let log = std::fs::read_to_string(&log_path).expect("read log");
+        let value: serde_json::Value = serde_json::from_str(log.trim()).expect("json line");
+
+        assert_eq!(log_path, dir.join("recording-timings.log"));
+        assert_eq!(value["cleanupMode"], "punctuation_only");
+        assert_eq!(value["asrMs"], 4);
+        assert_eq!(value["cleanupMs"], 5);
+        assert_eq!(value["insertionMs"], 7);
+        assert!(value.get("transcript").is_none());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -284,7 +435,7 @@ mod tests {
 async fn process_recording(
     audio: Vec<f32>,
     settings: LocalModelSettings,
-) -> Result<PipelineResult, String> {
+) -> Result<ProcessedRecording, String> {
     let total_start = Instant::now();
     let capture_start = Instant::now();
     let capture = capture_stats(&audio);
@@ -318,17 +469,27 @@ async fn process_recording(
         }
     };
     let cleanup_ms = cleanup_start.elapsed().as_millis();
+    let total_ms = total_start.elapsed().as_millis();
     eprintln!(
         "wispergo timing: process_recording capture_ms={} trim_ms={} asr_ms={} cleanup_ms={} total_ms={} cleanup_mode={:?}",
-        capture_ms,
-        trim_ms,
-        asr_ms,
-        cleanup_ms,
-        total_start.elapsed().as_millis(),
-        cleanup_mode
+        capture_ms, trim_ms, asr_ms, cleanup_ms, total_ms, cleanup_mode
     );
 
-    Ok(result)
+    Ok(ProcessedRecording {
+        result,
+        timings: ProcessRecordingTimings {
+            sample_count: capture.sample_count,
+            duration_ms: capture.duration_ms,
+            peak: capture.peak,
+            rms: capture.rms,
+            capture_ms,
+            trim_ms,
+            asr_ms,
+            cleanup_ms,
+            total_ms,
+            cleanup_mode,
+        },
+    })
 }
 
 async fn apply_cleanup_mode(
@@ -345,6 +506,9 @@ async fn apply_cleanup_mode(
     match cleanup_mode {
         CleanupMode::Off => raw_result,
         CleanupMode::PunctuationOnly => {
+            if looks_reasonably_punctuated(&asr.transcript) {
+                return raw_result;
+            }
             let Some(cleanup) = cleanup else {
                 return raw_result;
             };
@@ -352,7 +516,7 @@ async fn apply_cleanup_mode(
                 .clean_punctuation_only(CleanupInput {
                     transcript: asr.transcript,
                     selected_text: None,
-                    timeout: Duration::from_secs(3),
+                    timeout: PUNCTUATION_CLEANUP_TIMEOUT,
                 })
                 .await
                 .map(|text| PipelineResult::InsertText {
@@ -370,13 +534,18 @@ async fn apply_cleanup_mode(
                 .clean(CleanupInput {
                     transcript: asr.transcript,
                     selected_text: None,
-                    timeout: Duration::from_secs(3),
+                    timeout: FULL_CLEANUP_TIMEOUT,
                 })
                 .await
                 .map(|output| output.result)
                 .unwrap_or(raw_result)
         }
     }
+}
+
+fn looks_reasonably_punctuated(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    trimmed.ends_with(['.', '!', '?', '。', '！', '？'])
 }
 
 fn dictation_vad_config() -> VadConfig {

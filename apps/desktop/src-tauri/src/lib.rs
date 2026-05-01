@@ -1,5 +1,6 @@
 mod audio;
 mod commands;
+mod inference;
 #[allow(dead_code)]
 mod insertion;
 mod platform;

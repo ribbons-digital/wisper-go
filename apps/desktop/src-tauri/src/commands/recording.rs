@@ -278,17 +278,28 @@ mod tests {
     }
 
     #[test]
-    fn configured_asr_paths_take_precedence() {
-        let paths = super::resolve_asr_paths(&LocalModelSettings {
-            whisper_binary_path: Some("/settings/whisper-cli".to_string()),
-            whisper_model_path: Some("/settings/model.bin".to_string()),
-            recognition_language: crate::state::RecognitionLanguage::Auto,
-            cleanup_mode: CleanupMode::PunctuationOnly,
-        })
+    fn configured_asr_paths_are_used_when_bundled_resources_are_unavailable() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let whisper_binary_path = tempdir.path().join("whisper-cli");
+        let whisper_model_path = tempdir.path().join("model.bin");
+        create_file(&whisper_binary_path);
+        create_file(&whisper_model_path);
+
+        let paths = super::resolve_asr_paths_with_sources(
+            &LocalModelSettings {
+                whisper_binary_path: Some(whisper_binary_path.display().to_string()),
+                whisper_model_path: Some(whisper_model_path.display().to_string()),
+                recognition_language: crate::state::RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
+            },
+            None,
+            None,
+            None,
+        )
         .expect("resolve paths");
 
-        assert_eq!(paths.binary_path, PathBuf::from("/settings/whisper-cli"));
-        assert_eq!(paths.model_path, PathBuf::from("/settings/model.bin"));
+        assert_eq!(paths.binary_path, whisper_binary_path);
+        assert_eq!(paths.model_path, whisper_model_path);
     }
 
     #[test]
@@ -319,17 +330,46 @@ mod tests {
     }
 
     #[test]
-    fn explicit_settings_asr_paths_override_bundled_assets() {
+    fn environment_asr_paths_override_bundled_assets() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let resources = InferenceResourcePaths::from_resource_root_for_arch(
             tempdir.path().to_path_buf(),
             CpuArchitecture::Aarch64,
         );
+        create_file(&resources.whisper_binary_path);
+        create_file(&resources.asr_model_path);
 
         let paths = super::resolve_asr_paths_with_sources(
             &LocalModelSettings {
-                whisper_binary_path: Some("/custom/whisper-cli".to_string()),
-                whisper_model_path: Some("/custom/model.bin".to_string()),
+                whisper_binary_path: None,
+                whisper_model_path: None,
+                recognition_language: crate::state::RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
+            },
+            Some(&resources),
+            Some(PathBuf::from("/custom/whisper-cli")),
+            Some(PathBuf::from("/custom/model.bin")),
+        )
+        .expect("resolve paths");
+
+        assert_eq!(paths.binary_path, PathBuf::from("/custom/whisper-cli"));
+        assert_eq!(paths.model_path, PathBuf::from("/custom/model.bin"));
+    }
+
+    #[test]
+    fn stale_persisted_asr_settings_fall_back_to_bundled_assets() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+        create_file(&resources.whisper_binary_path);
+        create_file(&resources.asr_model_path);
+
+        let paths = super::resolve_asr_paths_with_sources(
+            &LocalModelSettings {
+                whisper_binary_path: Some("/missing/legacy-whisper-cli".to_string()),
+                whisper_model_path: Some("/missing/legacy-model.bin".to_string()),
                 recognition_language: crate::state::RecognitionLanguage::Auto,
                 cleanup_mode: CleanupMode::PunctuationOnly,
             },
@@ -339,8 +379,8 @@ mod tests {
         )
         .expect("resolve paths");
 
-        assert_eq!(paths.binary_path, PathBuf::from("/custom/whisper-cli"));
-        assert_eq!(paths.model_path, PathBuf::from("/custom/model.bin"));
+        assert_eq!(paths.binary_path, resources.whisper_binary_path);
+        assert_eq!(paths.model_path, resources.asr_model_path);
     }
 
     #[test]
@@ -371,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn partial_binary_override_uses_bundled_model() {
+    fn partial_binary_env_override_uses_bundled_model() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let resources = InferenceResourcePaths::from_resource_root_for_arch(
             tempdir.path().to_path_buf(),
@@ -382,13 +422,13 @@ mod tests {
 
         let paths = super::resolve_asr_paths_with_sources(
             &LocalModelSettings {
-                whisper_binary_path: Some("/custom/whisper-cli".to_string()),
+                whisper_binary_path: None,
                 whisper_model_path: None,
                 recognition_language: crate::state::RecognitionLanguage::Auto,
                 cleanup_mode: CleanupMode::PunctuationOnly,
             },
             Some(&resources),
-            None,
+            Some(PathBuf::from("/custom/whisper-cli")),
             None,
         )
         .expect("resolve paths");
@@ -886,11 +926,6 @@ fn local_asr_provider(
     )
 }
 
-#[cfg(test)]
-fn resolve_asr_paths(settings: &LocalModelSettings) -> Result<AsrPaths, String> {
-    resolve_asr_paths_with_resources(settings, None)
-}
-
 fn resolve_asr_paths_with_resources(
     settings: &LocalModelSettings,
     bundled_resources: Option<&InferenceResourcePaths>,
@@ -909,61 +944,68 @@ fn resolve_asr_paths_with_sources(
     env_binary: Option<PathBuf>,
     env_model: Option<PathBuf>,
 ) -> Result<AsrPaths, String> {
-    let (binary_path, bundled_binary_selected) = settings_path(&settings.whisper_binary_path)
-        .map(|path| (path, false))
-        .or_else(|| env_binary.map(|path| (path, false)))
+    let bundled_binary_path = bundled_resources
+        .filter(|resources| resources.whisper_binary_path.exists())
+        .map(|resources| resources.whisper_binary_path.clone());
+    let bundled_model_path = bundled_resources
+        .filter(|resources| resources.asr_model_path.exists())
+        .map(|resources| resources.asr_model_path.clone());
+
+    let binary_path = env_binary
+        .or(bundled_binary_path)
+        .or_else(|| existing_settings_path(&settings.whisper_binary_path))
         .or_else(|| {
-            bundled_resources.map(|resources| (resources.whisper_binary_path.clone(), true))
-        })
-        .or_else(|| find_in_path("whisper-cli").map(|path| (path, false)))
-        .or_else(|| find_in_path("whisper-cpp").map(|path| (path, false)))
-        .ok_or_else(|| {
-            "Local ASR is not configured and bundled whisper.cpp is unavailable. Reinstall Wispergo or set WISPERGO_WHISPER_BIN and WISPERGO_WHISPER_MODEL.".to_string()
-        })?;
+            if bundled_resources.is_none() {
+                find_in_path("whisper-cli").or_else(|| find_in_path("whisper-cpp"))
+            } else {
+                None
+            }
+        });
+    let model_path = env_model
+        .or(bundled_model_path)
+        .or_else(|| existing_settings_path(&settings.whisper_model_path));
 
-    let (model_path, bundled_model_selected) = settings_path(&settings.whisper_model_path)
-        .map(|path| (path, false))
-        .or_else(|| env_model.map(|path| (path, false)))
-        .or_else(|| bundled_resources.map(|resources| (resources.asr_model_path.clone(), true)))
-        .ok_or_else(|| {
-            "Local ASR model is missing. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL to a local whisper.cpp model path.".to_string()
-        })?;
+    match (binary_path, model_path) {
+        (Some(binary_path), Some(model_path)) => Ok(AsrPaths {
+            binary_path,
+            model_path,
+        }),
+        _ => {
+            if let Some(resources) = bundled_resources {
+                let mut missing = Vec::new();
+                if !resources.whisper_binary_path.exists() {
+                    missing.push(format_bundled_asset_path(
+                        &resources.resource_root,
+                        &resources.whisper_binary_path,
+                    ));
+                }
+                if !resources.asr_model_path.exists() {
+                    missing.push(format_bundled_asset_path(
+                        &resources.resource_root,
+                        &resources.asr_model_path,
+                    ));
+                }
+                if !missing.is_empty() {
+                    return Err(format!(
+                        "Wispergo installation is missing bundled ASR assets: {}",
+                        missing.join(", ")
+                    ));
+                }
+            }
 
-    if let Some(resources) = bundled_resources {
-        let mut missing = Vec::new();
-
-        if bundled_binary_selected && !resources.whisper_binary_path.exists() {
-            missing.push(format_bundled_asset_path(
-                &resources.resource_root,
-                &resources.whisper_binary_path,
-            ));
-        }
-
-        if bundled_model_selected && !resources.asr_model_path.exists() {
-            missing.push(format_bundled_asset_path(
-                &resources.resource_root,
-                &resources.asr_model_path,
-            ));
-        }
-
-        if !missing.is_empty() {
-            return Err(format!(
-                "Wispergo installation is missing bundled ASR assets: {}",
-                missing.join(", ")
-            ));
+            Err("Local ASR is not configured. Reinstall Wispergo or set WISPERGO_WHISPER_BIN and WISPERGO_WHISPER_MODEL.".to_string())
         }
     }
-
-    Ok(AsrPaths {
-        binary_path,
-        model_path,
-    })
 }
 
 fn format_bundled_asset_path(resource_root: &std::path::Path, path: &std::path::Path) -> String {
     path.strip_prefix(resource_root)
         .map(|relative| relative.display().to_string())
         .unwrap_or_else(|_| path.display().to_string())
+}
+
+fn existing_settings_path(path: &Option<String>) -> Option<PathBuf> {
+    settings_path(path).filter(|path| path.exists())
 }
 
 fn settings_path(path: &Option<String>) -> Option<PathBuf> {

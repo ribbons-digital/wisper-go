@@ -256,7 +256,6 @@ button:disabled {
     opacity 120ms ease;
 }
 
-.language-toggle:hover .language-chevron,
 .language-toggle.is-hovered .language-chevron,
 .language-toggle.is-open .language-chevron {
   width: 32px;

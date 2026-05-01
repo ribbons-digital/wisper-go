@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RecognitionLanguage } from "../../types/pipeline";
 
 type LanguageOption = {
@@ -24,23 +24,55 @@ export function LanguageToggle({
   onMenuOpenChange,
 }: Props) {
   const [hovered, setHovered] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const current = languages.find((option) => option.value === language) ?? languages[0];
   const className = ["language-toggle", menuOpen ? "is-open" : "", hovered ? "is-hovered" : ""]
     .filter(Boolean)
     .join(" ");
 
-  function handleMouseLeave() {
+  function clearHoverState() {
     setHovered(false);
     if (menuOpen) {
       onMenuOpenChange(false);
     }
   }
 
+  function showHoverState() {
+    setHovered(true);
+  }
+
+  useEffect(() => {
+    function handleDocumentMouseOut(event: MouseEvent) {
+      if (event.relatedTarget === null) {
+        clearHoverState();
+      }
+    }
+
+    function handleDocumentMouseMove(event: MouseEvent) {
+      const root = rootRef.current;
+      if (root && event.target instanceof Node && !root.contains(event.target)) {
+        clearHoverState();
+      }
+    }
+
+    document.addEventListener("mouseout", handleDocumentMouseOut);
+    document.addEventListener("mousemove", handleDocumentMouseMove);
+    return () => {
+      document.removeEventListener("mouseout", handleDocumentMouseOut);
+      document.removeEventListener("mousemove", handleDocumentMouseMove);
+    };
+  }, [menuOpen, onMenuOpenChange]);
+
   return (
     <div
+      ref={rootRef}
       className={className}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={handleMouseLeave}
+      onMouseEnter={showHoverState}
+      onMouseMove={showHoverState}
+      onMouseLeave={clearHoverState}
+      onPointerEnter={showHoverState}
+      onPointerMove={showHoverState}
+      onPointerLeave={clearHoverState}
     >
       {menuOpen ? (
         <div className="language-menu" role="menu" aria-label="Recognition language">

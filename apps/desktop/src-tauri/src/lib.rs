@@ -530,9 +530,12 @@ mod tests {
         let styles =
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
-        assert!(styles.contains(".language-toggle:hover .language-chevron"));
         assert!(styles.contains(".language-toggle.is-hovered .language-chevron"));
         assert!(styles.contains(".language-toggle.is-open .language-chevron"));
+        assert!(
+            !styles.contains(".language-toggle:hover .language-chevron"),
+            "native CSS hover can get stale in the floating Tauri window; use explicit hover state"
+        );
         assert!(
             !styles.contains(".language-toggle:focus-within .language-chevron"),
             "click focus must not keep the hover-only chevron visible after the pointer leaves"

@@ -14,6 +14,7 @@ use wispergo_core::providers::{
 use wispergo_core::whisper_sidecar::WhisperSidecarProvider;
 
 use crate::audio::{capture_stats, AudioCaptureStats};
+use crate::inference::resources::InferenceResourcePaths;
 use crate::insertion::clipboard::{insert_text_detailed, InsertionDiagnostics, InsertionResult};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecordingStatus};
 
@@ -81,9 +82,15 @@ pub async fn stop_recording(
     let stop_start = Instant::now();
     let audio = state.stop_recording(&reason)?;
     let stop_ms = stop_start.elapsed().as_millis();
+    let bundled_resources = bundled_inference_resources(&app);
 
     let process_start = Instant::now();
-    let processed = process_recording(audio, state.local_model_settings()).await?;
+    let processed = process_recording(
+        audio,
+        state.local_model_settings(),
+        bundled_resources.as_ref(),
+    )
+    .await?;
     let process_ms = process_start.elapsed().as_millis();
     let result = processed.result;
 
@@ -140,6 +147,16 @@ pub fn recording_status(state: State<'_, AppState>) -> &'static str {
     match state.recording_status() {
         RecordingStatus::Idle => "idle",
         RecordingStatus::Recording => "recording",
+    }
+}
+
+fn bundled_inference_resources(app: &AppHandle) -> Option<InferenceResourcePaths> {
+    match app.path().resource_dir() {
+        Ok(resource_root) => Some(InferenceResourcePaths::from_resource_root(resource_root)),
+        Err(err) => {
+            eprintln!("bundled inference resource directory unavailable: {err}");
+            None
+        }
     }
 }
 
@@ -223,12 +240,20 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::audio::AudioCaptureStats;
+    use crate::inference::resources::{CpuArchitecture, InferenceResourcePaths};
     use crate::insertion::clipboard::{
         FocusedTargetMetadata, FocusedTextTarget, InsertionDiagnostics, InsertionResult,
         InsertionStepStatus,
     };
     use crate::state::LocalModelSettings;
     use crate::state::{AppState, CleanupMode, RecordingSession, RecordingStatus};
+
+    fn create_file(path: &std::path::Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent");
+        }
+        std::fs::write(path, "test asset").expect("write test asset");
+    }
 
     #[test]
     fn start_and_cancel_recording_update_state() {
@@ -255,6 +280,78 @@ mod tests {
 
         assert_eq!(paths.binary_path, PathBuf::from("/settings/whisper-cli"));
         assert_eq!(paths.model_path, PathBuf::from("/settings/model.bin"));
+    }
+
+    #[test]
+    fn bundled_asr_paths_are_used_when_settings_and_env_are_empty() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+        create_file(&resources.whisper_binary_path);
+        create_file(&resources.asr_model_path);
+
+        let paths = super::resolve_asr_paths_with_resources(
+            &LocalModelSettings {
+                whisper_binary_path: None,
+                whisper_model_path: None,
+                recognition_language: crate::state::RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
+            },
+            Some(&resources),
+        )
+        .expect("resolve paths");
+
+        assert_eq!(paths.binary_path, resources.whisper_binary_path);
+        assert_eq!(paths.model_path, resources.asr_model_path);
+    }
+
+    #[test]
+    fn explicit_settings_asr_paths_override_bundled_assets() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+
+        let paths = super::resolve_asr_paths_with_resources(
+            &LocalModelSettings {
+                whisper_binary_path: Some("/custom/whisper-cli".to_string()),
+                whisper_model_path: Some("/custom/model.bin".to_string()),
+                recognition_language: crate::state::RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
+            },
+            Some(&resources),
+        )
+        .expect("resolve paths");
+
+        assert_eq!(paths.binary_path, PathBuf::from("/custom/whisper-cli"));
+        assert_eq!(paths.model_path, PathBuf::from("/custom/model.bin"));
+    }
+
+    #[test]
+    fn missing_bundled_asr_assets_return_damaged_install_error() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+
+        let error = super::resolve_asr_paths_with_resources(
+            &LocalModelSettings {
+                whisper_binary_path: None,
+                whisper_model_path: None,
+                recognition_language: crate::state::RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
+            },
+            Some(&resources),
+        )
+        .expect_err("missing bundled assets");
+
+        assert!(error.contains("Wispergo installation is missing bundled ASR assets"));
+        assert!(error.contains("bin/macos-aarch64/whisper-cli"));
+        assert!(error.contains("models/asr/ggml-large-v3-turbo.bin"));
     }
 
     #[test]
@@ -435,6 +532,7 @@ mod tests {
 async fn process_recording(
     audio: Vec<f32>,
     settings: LocalModelSettings,
+    bundled_resources: Option<&InferenceResourcePaths>,
 ) -> Result<ProcessedRecording, String> {
     let total_start = Instant::now();
     let capture_start = Instant::now();
@@ -453,7 +551,7 @@ async fn process_recording(
     }
 
     let asr_start = Instant::now();
-    let asr = local_asr_provider(&settings)?
+    let asr = local_asr_provider(&settings, bundled_resources)?
         .transcribe(audio)
         .await
         .map_err(provider_error_message)?;
@@ -565,13 +663,17 @@ fn no_speech_error(capture: AudioCaptureStats) -> String {
     )
 }
 
+#[derive(Debug)]
 struct AsrPaths {
     binary_path: PathBuf,
     model_path: PathBuf,
 }
 
-fn local_asr_provider(settings: &LocalModelSettings) -> Result<WhisperSidecarProvider, String> {
-    let paths = resolve_asr_paths(settings)?;
+fn local_asr_provider(
+    settings: &LocalModelSettings,
+    bundled_resources: Option<&InferenceResourcePaths>,
+) -> Result<WhisperSidecarProvider, String> {
+    let paths = resolve_asr_paths_with_resources(settings, bundled_resources)?;
 
     Ok(
         WhisperSidecarProvider::new(paths.binary_path, Some(paths.model_path))
@@ -586,17 +688,58 @@ fn local_asr_provider(settings: &LocalModelSettings) -> Result<WhisperSidecarPro
 }
 
 fn resolve_asr_paths(settings: &LocalModelSettings) -> Result<AsrPaths, String> {
-    let binary_path = settings_path(&settings.whisper_binary_path)
-        .or_else(|| env::var_os("WISPERGO_WHISPER_BIN").map(PathBuf::from))
-        .or_else(|| find_in_path("whisper-cli"))
+    resolve_asr_paths_with_resources(settings, None)
+}
+
+fn resolve_asr_paths_with_resources(
+    settings: &LocalModelSettings,
+    bundled_resources: Option<&InferenceResourcePaths>,
+) -> Result<AsrPaths, String> {
+    let override_binary = settings_path(&settings.whisper_binary_path)
+        .or_else(|| env::var_os("WISPERGO_WHISPER_BIN").map(PathBuf::from));
+    let override_model = settings_path(&settings.whisper_model_path)
+        .or_else(|| env::var_os("WISPERGO_WHISPER_MODEL").map(PathBuf::from));
+
+    if let (Some(binary_path), Some(model_path)) = (override_binary, override_model) {
+        return Ok(AsrPaths {
+            binary_path,
+            model_path,
+        });
+    }
+
+    if let Some(resources) = bundled_resources {
+        let missing = [&resources.whisper_binary_path, &resources.asr_model_path]
+            .into_iter()
+            .filter(|path| !path.exists())
+            .map(|path| {
+                path.strip_prefix(&resources.resource_root)
+                    .map(|relative| relative.display().to_string())
+                    .unwrap_or_else(|_| path.display().to_string())
+            })
+            .collect::<Vec<_>>();
+
+        if missing.is_empty() {
+            return Ok(AsrPaths {
+                binary_path: resources.whisper_binary_path.clone(),
+                model_path: resources.asr_model_path.clone(),
+            });
+        }
+
+        return Err(format!(
+            "Wispergo installation is missing bundled ASR assets: {}",
+            missing.join(", ")
+        ));
+    }
+
+    let binary_path = find_in_path("whisper-cli")
         .or_else(|| find_in_path("whisper-cpp"))
         .ok_or_else(|| {
-        "Local ASR is not configured. Set WISPERGO_WHISPER_BIN to a whisper.cpp compatible binary and WISPERGO_WHISPER_MODEL to a local model path.".to_string()
-    })?;
-    let model_path = settings_path(&settings.whisper_model_path)
-        .or_else(|| env::var_os("WISPERGO_WHISPER_MODEL").map(PathBuf::from))
+            "Local ASR is not configured and bundled whisper.cpp is unavailable. Reinstall Wispergo or set WISPERGO_WHISPER_BIN and WISPERGO_WHISPER_MODEL.".to_string()
+        })?;
+    let model_path = env::var_os("WISPERGO_WHISPER_MODEL")
+        .map(PathBuf::from)
         .ok_or_else(|| {
-            "Local ASR model is not configured. Set WISPERGO_WHISPER_MODEL to a local whisper.cpp model path.".to_string()
+            "Local ASR model is missing. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL to a local whisper.cpp model path.".to_string()
         })?;
 
     Ok(AsrPaths {

@@ -10,11 +10,13 @@ mod trigger;
 
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
-    accessibility_status, ensure_ollama_setup, fallback_policy_label, list_microphones,
-    load_persisted_settings, local_model_settings, microphone_status, recognition_language,
-    request_accessibility, request_microphone_access, selected_microphone_id,
+    accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
+    list_microphones, load_persisted_settings, local_model_settings, microphone_status,
+    recognition_language, request_accessibility, request_microphone_access, selected_microphone_id,
     set_local_model_settings, set_microphone_device, set_recognition_language,
 };
+use inference::cleanup_runtime::CleanupRuntimeManager;
+use inference::resources::InferenceResourcePaths;
 use state::AppState;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
@@ -32,10 +34,25 @@ fn set_language_menu_open(app: tauri::AppHandle, open: bool) -> Result<(), Strin
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState::default())
+        .manage(CleanupRuntimeManager::default())
         .setup(move |app| {
             if let Err(err) = load_persisted_settings(app.handle(), app.state::<AppState>().inner())
             {
                 eprintln!("settings load failed: {err}");
+            }
+            let cleanup_mode = app
+                .state::<AppState>()
+                .inner()
+                .local_model_settings()
+                .cleanup_mode;
+            if cleanup_mode != state::CleanupMode::Off {
+                if let Ok(resource_root) = app.path().resource_dir() {
+                    let resources = InferenceResourcePaths::from_resource_root(resource_root);
+                    app.state::<CleanupRuntimeManager>()
+                        .inner()
+                        .start_background(resources);
+                }
             }
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
@@ -58,7 +75,6 @@ pub fn run() {
                 }
             }
         })
-        .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             app_health,
             start_recording,
@@ -66,6 +82,7 @@ pub fn run() {
             cancel_recording,
             recording_status,
             fallback_policy_label,
+            cleanup_runtime_status,
             ensure_ollama_setup,
             list_microphones,
             selected_microphone_id,
@@ -80,8 +97,13 @@ pub fn run() {
             set_recognition_language,
             set_language_menu_open
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                app_handle.state::<CleanupRuntimeManager>().shutdown();
+            }
+        });
 }
 
 fn setup_global_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {

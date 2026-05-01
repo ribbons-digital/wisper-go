@@ -9,11 +9,12 @@ use wispergo_core::audio::{trim_silence, VadConfig};
 use wispergo_core::domain::PipelineResult;
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 use wispergo_core::providers::{
-    AsrOutput, AsrProvider, CleanupInput, CleanupProvider, ProviderError, TextCleanupProvider,
+    AsrOutput, AsrProvider, CleanupInput, ProviderError, TextCleanupProvider,
 };
 use wispergo_core::whisper_sidecar::WhisperSidecarProvider;
 
 use crate::audio::{capture_stats, AudioCaptureStats};
+use crate::inference::cleanup_runtime::CleanupRuntimeManager;
 use crate::inference::resources::InferenceResourcePaths;
 use crate::insertion::clipboard::{insert_text_detailed, InsertionDiagnostics, InsertionResult};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecordingStatus};
@@ -76,6 +77,7 @@ pub fn start_recording(state: State<'_, AppState>, mode: String) -> Result<(), S
 pub async fn stop_recording(
     app: AppHandle,
     state: State<'_, AppState>,
+    cleanup_runtime: State<'_, CleanupRuntimeManager>,
     reason: String,
 ) -> Result<StopRecordingOutput, String> {
     let total_start = Instant::now();
@@ -83,12 +85,14 @@ pub async fn stop_recording(
     let audio = state.stop_recording(&reason)?;
     let stop_ms = stop_start.elapsed().as_millis();
     let bundled_resources = bundled_inference_resources(&app);
+    let cleanup_provider = cleanup_provider_for_recording(cleanup_runtime.inner());
 
     let process_start = Instant::now();
     let processed = process_recording(
         audio,
         state.local_model_settings(),
         bundled_resources.as_ref(),
+        cleanup_provider.as_deref(),
     )
     .await?;
     let process_ms = process_start.elapsed().as_millis();
@@ -245,6 +249,11 @@ mod tests {
         FocusedTargetMetadata, FocusedTextTarget, InsertionDiagnostics, InsertionResult,
         InsertionStepStatus,
     };
+    use wispergo_core::domain::{PipelineResult, ProviderSource};
+    use wispergo_core::providers::{
+        AsrOutput, CleanupOutput, FakeTextCleanupProvider, ProviderError, TextCleanupProvider,
+    };
+
     use crate::state::LocalModelSettings;
     use crate::state::{AppState, CleanupMode, RecordingSession, RecordingStatus};
 
@@ -493,6 +502,136 @@ mod tests {
             .contains("CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await"));
     }
 
+    #[tokio::test]
+    async fn punctuation_cleanup_uses_text_cleanup_provider() {
+        let provider = FakeTextCleanupProvider::new(
+            Ok("Hello, world.".to_string()),
+            Ok(CleanupOutput {
+                result: PipelineResult::InsertText {
+                    text: "unused".to_string(),
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            }),
+        );
+        let asr = AsrOutput {
+            transcript: "hello world".to_string(),
+            confidence: Some(0.82),
+            source: ProviderSource::Local,
+        };
+
+        let result = super::apply_cleanup_mode(
+            asr,
+            CleanupMode::PunctuationOnly,
+            Some(&provider as &dyn TextCleanupProvider),
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "Hello, world.".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.82),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_timeout_falls_back_to_raw_asr() {
+        let provider = FakeTextCleanupProvider::new(
+            Err(ProviderError::Timeout {
+                provider: "fake".to_string(),
+            }),
+            Ok(CleanupOutput {
+                result: PipelineResult::InsertText {
+                    text: "unused".to_string(),
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            }),
+        );
+        let asr = AsrOutput {
+            transcript: "hello world".to_string(),
+            confidence: Some(0.82),
+            source: ProviderSource::Local,
+        };
+
+        let result = super::apply_cleanup_mode(
+            asr,
+            CleanupMode::PunctuationOnly,
+            Some(&provider as &dyn TextCleanupProvider),
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "hello world".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.82),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_invalid_output_falls_back_to_raw_asr() {
+        let provider = FakeTextCleanupProvider::new(
+            Err(ProviderError::InvalidOutput {
+                provider: "fake".to_string(),
+                message: "invalid".to_string(),
+            }),
+            Ok(CleanupOutput {
+                result: PipelineResult::InsertText {
+                    text: "unused".to_string(),
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            }),
+        );
+        let asr = AsrOutput {
+            transcript: "hello world".to_string(),
+            confidence: Some(0.82),
+            source: ProviderSource::Local,
+        };
+
+        let result = super::apply_cleanup_mode(
+            asr,
+            CleanupMode::PunctuationOnly,
+            Some(&provider as &dyn TextCleanupProvider),
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "hello world".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.82),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_without_provider_falls_back_to_raw_asr() {
+        let asr = AsrOutput {
+            transcript: "hello world".to_string(),
+            confidence: Some(0.82),
+            source: ProviderSource::Local,
+        };
+
+        let result = super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None).await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "hello world".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.82),
+            }
+        );
+    }
+
     #[test]
     fn punctuation_cleanup_uses_short_timeout_and_skips_when_already_punctuated() {
         let source = std::fs::read_to_string(
@@ -593,6 +732,7 @@ async fn process_recording(
     audio: Vec<f32>,
     settings: LocalModelSettings,
     bundled_resources: Option<&InferenceResourcePaths>,
+    cleanup_provider: Option<&dyn TextCleanupProvider>,
 ) -> Result<ProcessedRecording, String> {
     let total_start = Instant::now();
     let capture_start = Instant::now();
@@ -622,8 +762,7 @@ async fn process_recording(
     let result = match cleanup_mode {
         CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await,
         CleanupMode::PunctuationOnly | CleanupMode::FullCleanup => {
-            let cleanup = ollama_cleanup_provider();
-            apply_cleanup_mode(asr, cleanup_mode, cleanup.as_ref()).await
+            apply_cleanup_mode(asr, cleanup_mode, cleanup_provider).await
         }
     };
     let cleanup_ms = cleanup_start.elapsed().as_millis();
@@ -653,7 +792,7 @@ async fn process_recording(
 async fn apply_cleanup_mode(
     asr: AsrOutput,
     cleanup_mode: CleanupMode,
-    cleanup: Option<&OllamaCleanupProvider>,
+    cleanup: Option<&dyn TextCleanupProvider>,
 ) -> PipelineResult {
     let raw_result = PipelineResult::InsertText {
         text: asr.transcript.clone(),
@@ -747,6 +886,7 @@ fn local_asr_provider(
     )
 }
 
+#[cfg(test)]
 fn resolve_asr_paths(settings: &LocalModelSettings) -> Result<AsrPaths, String> {
     resolve_asr_paths_with_resources(settings, None)
 }
@@ -840,6 +980,19 @@ fn find_in_path(binary: &str) -> Option<PathBuf> {
     env::split_paths(&path)
         .map(|dir| dir.join(binary))
         .find(|candidate| candidate.is_file())
+}
+
+fn cleanup_provider_for_recording(
+    cleanup_runtime: &CleanupRuntimeManager,
+) -> Option<Box<dyn TextCleanupProvider>> {
+    if env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref() == Some("ollama") {
+        return ollama_cleanup_provider()
+            .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>);
+    }
+
+    cleanup_runtime
+        .provider()
+        .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>)
 }
 
 fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {

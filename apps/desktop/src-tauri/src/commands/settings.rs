@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 
 use crate::audio::AudioInputDevice;
+use crate::inference::cleanup_runtime::{CleanupRuntimeManager, CleanupRuntimeStatus};
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
 use crate::state::{AppState, LocalModelSettings, RecognitionLanguage};
 
@@ -35,6 +36,13 @@ struct PersistedSettings {
 #[tauri::command]
 pub fn fallback_policy_label() -> &'static str {
     "prefer_local_ask_before_cloud"
+}
+
+#[tauri::command]
+pub fn cleanup_runtime_status(
+    cleanup_runtime: State<'_, CleanupRuntimeManager>,
+) -> CleanupRuntimeStatus {
+    cleanup_runtime.status()
 }
 
 #[tauri::command]

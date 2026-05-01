@@ -657,12 +657,6 @@ function insertSummary(output: StopRecordingOutput): string {
   return `Copied to clipboard; auto-paste failed. Check Accessibility permission: ${output.result.text}`;
 }
 
-function errorMessage(err: unknown): string {
-  if (err instanceof Error) {
-    return err.message;
-  }
-  if (typeof err === "string") {
-    return err;
-  }
-  return "Command failed";
+function errorMessage(_err: unknown): string {
+  return "Wispergo could not complete that action. Check permissions and try again.";
 }

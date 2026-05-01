@@ -349,7 +349,27 @@ describe("App", () => {
     await emitRecordShortcut("Pressed");
 
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("microphone denied");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Wispergo could not complete that action. Check permissions and try again.",
+    );
+  });
+
+  it("sanitizes raw command errors before rendering", async () => {
+    window.history.pushState({}, "", "/?surface=recorder");
+    vi.mocked(startRecording).mockRejectedValueOnce(
+      "whisper failed --model /Users/example/private/model.bin http://127.0.0.1:11434",
+    );
+
+    render(<App />);
+    await emitRecordShortcut("Pressed");
+
+    expect(
+      await screen.findByText(
+        "Wispergo could not complete that action. Check permissions and try again.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/private\/model\.bin/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/127\.0\.0\.1:11434/)).not.toBeInTheDocument();
   });
 
   it("returns to idle when stop fails after the native session has ended", async () => {
@@ -363,7 +383,9 @@ describe("App", () => {
     await emitRecordShortcut("Released");
 
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Local ASR is not configured");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Wispergo could not complete that action. Check permissions and try again.",
+    );
   });
 
   it("explains copied-only insertion as an auto-paste fallback", async () => {

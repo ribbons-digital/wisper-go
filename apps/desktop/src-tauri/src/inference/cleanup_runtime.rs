@@ -98,6 +98,15 @@ impl CleanupRuntimeManager {
         });
     }
 
+    fn start_background_if_generation(&self, resources: InferenceResourcePaths, generation: u64) {
+        let manager = self.clone();
+        tauri::async_runtime::spawn(async move {
+            if manager.should_restart_for_generation(generation) {
+                manager.start(resources).await;
+            }
+        });
+    }
+
     pub async fn start(&self, resources: InferenceResourcePaths) {
         if resources.validate_required_assets().is_err() {
             self.terminate_runtime_with_status(
@@ -162,8 +171,8 @@ impl CleanupRuntimeManager {
     async fn monitor_child(&self, resources: InferenceResourcePaths, generation: u64) {
         enum MonitorOutcome {
             Continue,
-            Restart,
-            TerminateAndRestart(Child),
+            Restart { generation: u64 },
+            TerminateAndRestart { child: Child, generation: u64 },
         }
 
         loop {
@@ -188,7 +197,10 @@ impl CleanupRuntimeManager {
                             message: Some(STOPPED_UNEXPECTEDLY_MESSAGE.to_string()),
                         };
                         inner.generation = inner.generation.wrapping_add(1);
-                        MonitorOutcome::Restart
+                        let restart_generation = inner.generation;
+                        MonitorOutcome::Restart {
+                            generation: restart_generation,
+                        }
                     }
                     Ok(None) => MonitorOutcome::Continue,
                     Err(err) => {
@@ -200,9 +212,15 @@ impl CleanupRuntimeManager {
                             message: Some(STOPPED_UNEXPECTEDLY_MESSAGE.to_string()),
                         };
                         inner.generation = inner.generation.wrapping_add(1);
+                        let restart_generation = inner.generation;
                         match child {
-                            Some(child) => MonitorOutcome::TerminateAndRestart(child),
-                            None => MonitorOutcome::Restart,
+                            Some(child) => MonitorOutcome::TerminateAndRestart {
+                                child,
+                                generation: restart_generation,
+                            },
+                            None => MonitorOutcome::Restart {
+                                generation: restart_generation,
+                            },
                         }
                     }
                 }
@@ -210,13 +228,13 @@ impl CleanupRuntimeManager {
 
             match outcome {
                 MonitorOutcome::Continue => {}
-                MonitorOutcome::Restart => {
-                    self.start_background(resources.clone());
+                MonitorOutcome::Restart { generation } => {
+                    self.start_background_if_generation(resources.clone(), generation);
                     return;
                 }
-                MonitorOutcome::TerminateAndRestart(child) => {
+                MonitorOutcome::TerminateAndRestart { child, generation } => {
                     terminate_child_if_present(Some(child));
-                    self.start_background(resources.clone());
+                    self.start_background_if_generation(resources.clone(), generation);
                     return;
                 }
             }
@@ -267,6 +285,11 @@ impl CleanupRuntimeManager {
         self.inner.lock().expect("cleanup runtime lock").generation == generation
     }
 
+    fn should_restart_for_generation(&self, generation: u64) -> bool {
+        let inner = self.inner.lock().expect("cleanup runtime lock");
+        inner.generation == generation && inner.status.state == CleanupRuntimeState::Failed
+    }
+
     fn set_status_if_generation(
         &self,
         generation: u64,
@@ -314,6 +337,11 @@ impl CleanupRuntimeManager {
             state: CleanupRuntimeState::Failed,
             message: Some(message.to_string()),
         };
+    }
+
+    #[cfg(test)]
+    fn generation_for_test(&self) -> u64 {
+        self.inner.lock().expect("cleanup runtime lock").generation
     }
 }
 
@@ -450,5 +478,18 @@ mod tests {
             status.message.as_deref(),
             Some("Offline punctuation stopped unexpectedly.")
         );
+    }
+
+    #[test]
+    fn restart_guard_is_invalidated_by_shutdown_generation() {
+        let manager = CleanupRuntimeManager::default();
+        manager.mark_failed_for_test("Offline punctuation stopped unexpectedly.");
+        let generation = manager.generation_for_test();
+
+        assert!(manager.should_restart_for_generation(generation));
+
+        manager.shutdown();
+
+        assert!(!manager.should_restart_for_generation(generation));
     }
 }

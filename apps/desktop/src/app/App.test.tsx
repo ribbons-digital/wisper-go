@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import {
   accessibilityStatus,
-  ensureOllamaSetup,
+  cleanupRuntimeStatus,
   listMicrophones,
   localModelSettings,
   microphoneStatus,
@@ -34,14 +34,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("../lib/tauriApi", () => ({
   accessibilityStatus: vi.fn().mockResolvedValue({ granted: false, canPrompt: true }),
   cancelRecording: vi.fn().mockResolvedValue(undefined),
-  ensureOllamaSetup: vi.fn().mockResolvedValue({
-    cliInstalled: true,
-    serverRunning: true,
-    modelInstalled: true,
-    model: "qwen2.5:0.5b",
-    status: "ready",
-    message: null,
-  }),
+  cleanupRuntimeStatus: vi.fn().mockResolvedValue({ state: "ready", message: null }),
   fallbackPolicyLabel: vi.fn().mockResolvedValue("prefer_local_ask_before_cloud"),
   localModelSettings: vi.fn().mockResolvedValue({
     whisperBinaryPath: "/usr/local/bin/whisper-cli",
@@ -75,7 +68,7 @@ describe("App", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.mocked(accessibilityStatus).mockReset();
-    vi.mocked(ensureOllamaSetup).mockReset();
+    vi.mocked(cleanupRuntimeStatus).mockReset();
     vi.mocked(localModelSettings).mockReset();
     vi.mocked(listMicrophones).mockReset();
     vi.mocked(microphoneStatus).mockReset();
@@ -92,14 +85,7 @@ describe("App", () => {
     eventListeners.clear();
     window.history.pushState({}, "", "/");
     vi.mocked(accessibilityStatus).mockResolvedValue({ granted: false, canPrompt: true });
-    vi.mocked(ensureOllamaSetup).mockResolvedValue({
-      cliInstalled: true,
-      serverRunning: true,
-      modelInstalled: true,
-      model: "qwen2.5:0.5b",
-      status: "ready",
-      message: null,
-    });
+    vi.mocked(cleanupRuntimeStatus).mockResolvedValue({ state: "ready", message: null });
     vi.mocked(localModelSettings).mockResolvedValue({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
@@ -179,35 +165,33 @@ describe("App", () => {
     expect(setMicrophoneDevice).toHaveBeenCalledWith("1");
   });
 
-  it("loads and saves local model settings", async () => {
+  it("saves local model settings while preserving hidden paths", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByDisplayValue("/usr/local/bin/whisper-cli")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("/models/base.bin")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recognition language")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Whisper binary path/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Whisper model path/i)).not.toBeInTheDocument();
 
-    await user.clear(screen.getByLabelText("Whisper binary path"));
-    await user.type(screen.getByLabelText("Whisper binary path"), "/opt/homebrew/bin/whisper-cli");
-    await user.clear(screen.getByLabelText("Whisper model path"));
-    await user.type(screen.getByLabelText("Whisper model path"), "/models/small.bin");
+    await user.selectOptions(screen.getByLabelText("Recognition language"), "zh");
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(setLocalModelSettings).toHaveBeenCalledWith({
-      whisperBinaryPath: "/opt/homebrew/bin/whisper-cli",
-      whisperModelPath: "/models/small.bin",
-      recognitionLanguage: "auto",
+      whisperBinaryPath: "/usr/local/bin/whisper-cli",
+      whisperModelPath: "/models/base.bin",
+      recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
     });
   });
 
-  it("checks Ollama setup after cleanup-enabled settings load and renders status", async () => {
+  it("checks cleanup runtime status after cleanup-enabled settings load and renders status", async () => {
     render(<App />);
 
-    expect(await screen.findByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
-    expect(ensureOllamaSetup).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Offline punctuation ready.")).toBeInTheDocument();
+    expect(cleanupRuntimeStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("does not check Ollama setup when saved cleanup mode is off", async () => {
+  it("does not check cleanup runtime status when saved cleanup mode is off", async () => {
     vi.mocked(localModelSettings).mockResolvedValueOnce({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
@@ -216,28 +200,25 @@ describe("App", () => {
     });
 
     render(<App />);
-    expect(await screen.findByDisplayValue("/usr/local/bin/whisper-cli")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recognition language")).toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();
     });
 
-    expect(ensureOllamaSetup).not.toHaveBeenCalled();
-    expect(screen.queryByText(/Ollama ready for local cleanup/)).not.toBeInTheDocument();
+    expect(cleanupRuntimeStatus).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Offline punctuation ready/)).not.toBeInTheDocument();
   });
 
-  it("renders Ollama install prompt when the CLI is missing", async () => {
-    vi.mocked(ensureOllamaSetup).mockResolvedValueOnce({
-      cliInstalled: false,
-      serverRunning: false,
-      modelInstalled: false,
-      model: "qwen2.5:0.5b",
-      status: "cli_missing",
-      message: "Install Ollama",
+  it("renders unavailable offline punctuation status", async () => {
+    vi.mocked(cleanupRuntimeStatus).mockResolvedValueOnce({
+      state: "unavailable",
+      message: "Offline punctuation is unavailable.",
     });
 
     render(<App />);
 
-    expect(await screen.findByText(/Install Ollama to enable local punctuation cleanup/)).toBeInTheDocument();
+    expect(await screen.findByText(/Offline punctuation is unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/raw transcripts/)).toBeInTheDocument();
   });
 
   it("requests accessibility permission from the setup panel", async () => {

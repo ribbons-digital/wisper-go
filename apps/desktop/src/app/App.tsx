@@ -5,7 +5,7 @@ import { LanguageToggle } from "../features/recorder/LanguageToggle";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import {
   accessibilityStatus,
-  ensureOllamaSetup,
+  cleanupRuntimeStatus,
   fallbackPolicyLabel,
   listMicrophones,
   localModelSettings,
@@ -25,9 +25,9 @@ import {
 import type {
   AccessibilityStatus,
   AudioInputDevice,
+  CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
-  OllamaSetupStatus,
   RecognitionLanguage,
   StopRecordingOutput,
 } from "../types/pipeline";
@@ -36,6 +36,7 @@ type RecordingStatus = "idle" | "recording";
 type PermissionRequest = "microphone" | "accessibility";
 const MICROPHONE_REFRESH_MS = 2000;
 const ACCESSIBILITY_REFRESH_MS = 2000;
+const CLEANUP_RUNTIME_REFRESH_MS = 2000;
 const RECOGNITION_LANGUAGES = [
   { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
@@ -66,7 +67,7 @@ export function App() {
     cleanupMode: "punctuation_only",
   });
   const [modelSettingsLoaded, setModelSettingsLoaded] = useState(false);
-  const [ollamaSetup, setOllamaSetup] = useState<OllamaSetupStatus | null>(null);
+  const [cleanupRuntime, setCleanupRuntime] = useState<CleanupRuntimeStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
@@ -88,33 +89,37 @@ export function App() {
     }
 
     if (modelSettings.cleanupMode === "off") {
-      setOllamaSetup(null);
+      setCleanupRuntime(null);
       return;
     }
 
     let mounted = true;
+    const refreshCleanupRuntime = () => {
+      void cleanupRuntimeStatus()
+        .then((status) => {
+          if (mounted) {
+            setCleanupRuntime(status);
+          }
+        })
+        .catch(() => {
+          if (mounted) {
+            setCleanupRuntime({
+              state: "unavailable",
+              message: "Offline punctuation is unavailable.",
+            });
+          }
+        });
+    };
 
-    void ensureOllamaSetup()
-      .then((status) => {
-        if (mounted) {
-          setOllamaSetup(status);
-        }
-      })
-      .catch((err: unknown) => {
-        if (mounted) {
-          setOllamaSetup({
-            cliInstalled: false,
-            serverRunning: false,
-            modelInstalled: false,
-            model: "qwen2.5:0.5b",
-            status: "unavailable",
-            message: errorMessage(err),
-          });
-        }
-      });
+    refreshCleanupRuntime();
+    const cleanupRuntimeRefresh = window.setInterval(
+      refreshCleanupRuntime,
+      CLEANUP_RUNTIME_REFRESH_MS,
+    );
 
     return () => {
       mounted = false;
+      window.clearInterval(cleanupRuntimeRefresh);
     };
   }, [isRecorderSurface, isLanguageSurface, modelSettingsLoaded, modelSettings.cleanupMode]);
 
@@ -556,7 +561,7 @@ export function App() {
           microphone={microphone}
           accessibility={accessibility}
           modelSettings={modelSettings}
-          ollamaSetup={ollamaSetup}
+          cleanupRuntime={cleanupRuntime}
           requestingPermission={requestingPermission}
           onMicrophoneChange={(deviceId) => {
             setSelectedMic(deviceId);

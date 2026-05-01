@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import type {
   AccessibilityStatus,
   AudioInputDevice,
+  CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
-  OllamaSetupStatus,
 } from "../../types/pipeline";
 
 type PermissionRequest = "microphone" | "accessibility";
@@ -16,7 +16,7 @@ type Props = {
   microphone: MicrophoneStatus;
   accessibility: AccessibilityStatus;
   modelSettings: LocalModelSettings;
-  ollamaSetup?: OllamaSetupStatus | null;
+  cleanupRuntime?: CleanupRuntimeStatus | null;
   requestingPermission?: PermissionRequest | null;
   onMicrophoneChange: (deviceId: string) => void;
   onRefreshMicrophones: () => void;
@@ -33,7 +33,7 @@ export function SettingsPanel({
   microphone,
   accessibility,
   modelSettings,
-  ollamaSetup = null,
+  cleanupRuntime = null,
   requestingPermission = null,
   onMicrophoneChange,
   onRefreshMicrophones,
@@ -56,32 +56,6 @@ export function SettingsPanel({
         <strong>Hold Command + Shift + Space</strong>
       </div>
       <div className="model-settings">
-        <label>
-          Whisper binary path
-          <input
-            type="text"
-            value={draftModelSettings.whisperBinaryPath}
-            onChange={(event) =>
-              setDraftModelSettings((current) => ({
-                ...current,
-                whisperBinaryPath: event.target.value,
-              }))
-            }
-          />
-        </label>
-        <label>
-          Whisper model path
-          <input
-            type="text"
-            value={draftModelSettings.whisperModelPath}
-            onChange={(event) =>
-              setDraftModelSettings((current) => ({
-                ...current,
-                whisperModelPath: event.target.value,
-              }))
-            }
-          />
-        </label>
         <label>
           Recognition language
           <select
@@ -118,7 +92,7 @@ export function SettingsPanel({
           Save model settings
         </button>
       </div>
-      {cleanupEnabled && ollamaSetup ? <OllamaSetupNotice status={ollamaSetup} /> : null}
+      {cleanupEnabled && cleanupRuntime ? <CleanupRuntimeNotice status={cleanupRuntime} /> : null}
       <label>
         Microphone input
         <div className="microphone-row">
@@ -174,38 +148,26 @@ export function SettingsPanel({
   );
 }
 
-function OllamaSetupNotice({ status }: { status: OllamaSetupStatus }) {
-  if (!status.cliInstalled) {
+function CleanupRuntimeNotice({ status }: { status: CleanupRuntimeStatus }) {
+  if (status.state === "ready") {
     return (
-      <div className="ollama-setup" aria-live="polite">
-        Install Ollama to enable local punctuation cleanup. Download it from
-        {" "}
-        <a href="https://ollama.com/download">https://ollama.com/download</a>, then reopen
-        Wispergo.
+      <div className="cleanup-runtime" aria-live="polite">
+        Offline punctuation ready.
       </div>
     );
   }
 
-  if (!status.serverRunning) {
+  if (status.state === "starting") {
     return (
-      <div className="ollama-setup" aria-live="polite">
-        Starting Ollama for local cleanup… {status.message ?? "Try again in a moment."}
-      </div>
-    );
-  }
-
-  if (!status.modelInstalled) {
-    return (
-      <div className="ollama-setup" aria-live="polite">
-        Preparing local cleanup model {status.model}. {status.message ??
-          "Wispergo will use raw transcripts until the model is ready."}
+      <div className="cleanup-runtime" aria-live="polite">
+        Preparing offline punctuation. Wispergo will use raw transcripts until it is ready.
       </div>
     );
   }
 
   return (
-    <div className="ollama-setup" aria-live="polite">
-      Ollama ready for local cleanup: {status.model}
+    <div className="cleanup-runtime" aria-live="polite">
+      {status.message ?? "Offline punctuation is unavailable."} Wispergo will use raw transcripts.
     </div>
   );
 }

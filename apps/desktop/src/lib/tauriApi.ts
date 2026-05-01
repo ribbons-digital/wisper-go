@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AccessibilityStatus,
   AudioInputDevice,
+  CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
   OllamaSetupStatus,
@@ -36,6 +37,10 @@ export async function fallbackPolicyLabel(): Promise<string> {
 
 export async function ensureOllamaSetup(): Promise<OllamaSetupStatus> {
   return invoke<OllamaSetupStatus>("ensure_ollama_setup");
+}
+
+export function cleanupRuntimeStatus(): Promise<CleanupRuntimeStatus> {
+  return invoke<CleanupRuntimeStatus>("cleanup_runtime_status");
 }
 
 export async function listMicrophones(): Promise<AudioInputDevice[]> {

@@ -35,35 +35,32 @@ function renderSettingsPanel(overrides: Partial<SettingsPanelProps> = {}) {
 }
 
 describe("SettingsPanel", () => {
-  it("saves local model paths", async () => {
-    const user = userEvent.setup();
-    const onModelSettingsSave = vi.fn();
+  it("hides local model path fields", () => {
+    renderSettingsPanel();
 
-    renderSettingsPanel({ onModelSettingsSave });
-
-    await user.type(screen.getByLabelText("Whisper binary path"), "/opt/homebrew/bin/whisper-cli");
-    await user.type(screen.getByLabelText("Whisper model path"), "/models/ggml-base.en.bin");
-    await user.click(screen.getByRole("button", { name: "Save model settings" }));
-
-    expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "/opt/homebrew/bin/whisper-cli",
-      whisperModelPath: "/models/ggml-base.en.bin",
-      recognitionLanguage: "auto",
-      cleanupMode: "punctuation_only",
-    });
+    expect(screen.queryByLabelText(/Whisper binary path/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Whisper model path/i)).not.toBeInTheDocument();
   });
 
   it("saves recognition language with local model settings", async () => {
     const user = userEvent.setup();
     const onModelSettingsSave = vi.fn();
-    renderSettingsPanel({ onModelSettingsSave });
+    renderSettingsPanel({
+      onModelSettingsSave,
+      modelSettings: {
+        whisperBinaryPath: "/usr/local/bin/whisper-cli",
+        whisperModelPath: "/models/base.bin",
+        recognitionLanguage: "auto",
+        cleanupMode: "punctuation_only",
+      },
+    });
 
     await user.selectOptions(screen.getByLabelText("Recognition language"), "zh");
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "",
-      whisperModelPath: "",
+      whisperBinaryPath: "/usr/local/bin/whisper-cli",
+      whisperModelPath: "/models/base.bin",
       recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
     });
@@ -72,54 +69,45 @@ describe("SettingsPanel", () => {
   it("saves cleanup mode with local model settings", async () => {
     const user = userEvent.setup();
     const onModelSettingsSave = vi.fn();
-    renderSettingsPanel({ onModelSettingsSave });
+    renderSettingsPanel({
+      onModelSettingsSave,
+      modelSettings: {
+        whisperBinaryPath: "/usr/local/bin/whisper-cli",
+        whisperModelPath: "/models/base.bin",
+        recognitionLanguage: "auto",
+        cleanupMode: "punctuation_only",
+      },
+    });
 
     await user.selectOptions(screen.getByLabelText("Cleanup mode"), "full_cleanup");
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "",
-      whisperModelPath: "",
+      whisperBinaryPath: "/usr/local/bin/whisper-cli",
+      whisperModelPath: "/models/base.bin",
       recognitionLanguage: "auto",
       cleanupMode: "full_cleanup",
     });
   });
 
-  it("shows Ollama install instructions when the CLI is missing", () => {
+  it("shows ready offline punctuation status", () => {
     renderSettingsPanel({
-      ollamaSetup: {
-        cliInstalled: false,
-        serverRunning: false,
-        modelInstalled: false,
-        model: "qwen2.5:0.5b",
-        status: "cli_missing",
-        message: "Install Ollama",
-      },
+      cleanupRuntime: { state: "ready", message: null },
     });
 
-    expect(screen.getByText(/Install Ollama to enable local punctuation cleanup/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "https://ollama.com/download" })).toHaveAttribute(
-      "href",
-      "https://ollama.com/download",
-    );
+    expect(screen.getByText("Offline punctuation ready.")).toBeInTheDocument();
   });
 
-  it("shows ready Ollama status", () => {
+  it("shows unavailable offline punctuation status and raw transcripts fallback", () => {
     renderSettingsPanel({
-      ollamaSetup: {
-        cliInstalled: true,
-        serverRunning: true,
-        modelInstalled: true,
-        model: "qwen2.5:0.5b",
-        status: "ready",
-        message: null,
-      },
+      cleanupRuntime: { state: "unavailable", message: "Offline punctuation is unavailable." },
     });
 
-    expect(screen.getByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
+    expect(screen.getByText(/Offline punctuation is unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/raw transcripts/)).toBeInTheDocument();
   });
 
-  it("hides Ollama status when cleanup mode is off", () => {
+  it("hides cleanup runtime status when cleanup mode is off", () => {
     renderSettingsPanel({
       modelSettings: {
         whisperBinaryPath: "",
@@ -127,17 +115,20 @@ describe("SettingsPanel", () => {
         recognitionLanguage: "auto",
         cleanupMode: "off",
       },
-      ollamaSetup: {
-        cliInstalled: true,
-        serverRunning: true,
-        modelInstalled: true,
-        model: "qwen2.5:0.5b",
-        status: "ready",
-        message: null,
-      },
+      cleanupRuntime: { state: "ready", message: null },
     });
 
-    expect(screen.queryByText(/Ollama ready for local cleanup/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Offline punctuation ready/)).not.toBeInTheDocument();
+  });
+
+  it("does not render Ollama install links or model text", () => {
+    renderSettingsPanel({
+      cleanupRuntime: { state: "ready", message: null },
+    });
+
+    expect(screen.queryByText(/Install Ollama/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ollama\.com/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/qwen2\.5/i)).not.toBeInTheDocument();
   });
 
   it("changes microphone input", async () => {

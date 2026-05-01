@@ -35,6 +35,13 @@ export type LocalModelSettings = {
   cleanupMode: CleanupMode;
 };
 
+export type CleanupRuntimeState = "disabled" | "starting" | "ready" | "unavailable" | "failed";
+
+export type CleanupRuntimeStatus = {
+  state: CleanupRuntimeState;
+  message?: string | null;
+};
+
 export type OllamaSetupStatus = {
   cliInstalled: boolean;
   serverRunning: boolean;

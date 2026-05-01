@@ -72,6 +72,32 @@ async fn fake_text_cleanup_returns_plain_punctuation_response() {
 }
 
 #[tokio::test]
+async fn text_cleanup_trait_object_supports_punctuation_cleanup() {
+    let provider = FakeTextCleanupProvider::new(
+        Ok("Hello, world.".to_string()),
+        Ok(CleanupOutput {
+            result: PipelineResult::InsertText {
+                text: "unused".to_string(),
+                source: ProviderSource::Local,
+                confidence: None,
+            },
+        }),
+    );
+    let cleanup: &dyn TextCleanupProvider = &provider;
+
+    let output = cleanup
+        .clean_punctuation_only(CleanupInput {
+            transcript: "hello world".to_string(),
+            selected_text: None,
+            timeout: Duration::from_millis(500),
+        })
+        .await
+        .expect("trait object punctuation output");
+
+    assert_eq!(output, "Hello, world.");
+}
+
+#[tokio::test]
 async fn provider_errors_distinguish_timeout_and_unavailable() {
     let timeout = ProviderError::Timeout {
         provider: "local_asr".to_string(),

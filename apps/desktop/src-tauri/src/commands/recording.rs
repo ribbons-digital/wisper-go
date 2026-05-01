@@ -9,7 +9,7 @@ use wispergo_core::audio::{trim_silence, VadConfig};
 use wispergo_core::domain::PipelineResult;
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 use wispergo_core::providers::{
-    AsrOutput, AsrProvider, CleanupInput, CleanupProvider, ProviderError,
+    AsrOutput, AsrProvider, CleanupInput, CleanupProvider, ProviderError, TextCleanupProvider,
 };
 use wispergo_core::whisper_sidecar::WhisperSidecarProvider;
 

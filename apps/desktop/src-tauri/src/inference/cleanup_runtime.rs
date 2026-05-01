@@ -101,9 +101,7 @@ impl CleanupRuntimeManager {
     fn start_background_if_generation(&self, resources: InferenceResourcePaths, generation: u64) {
         let manager = self.clone();
         tauri::async_runtime::spawn(async move {
-            if manager.should_restart_for_generation(generation) {
-                manager.start(resources).await;
-            }
+            manager.restart_if_generation(resources, generation).await;
         });
     }
 
@@ -117,6 +115,40 @@ impl CleanupRuntimeManager {
         }
 
         let (generation, existing_child) = self.begin_start();
+        self.continue_start(resources, generation, existing_child)
+            .await;
+    }
+
+    async fn restart_if_generation(
+        &self,
+        resources: InferenceResourcePaths,
+        expected_generation: u64,
+    ) {
+        if resources.validate_required_assets().is_err() {
+            self.set_status_if_generation(
+                expected_generation,
+                CleanupRuntimeState::Unavailable,
+                Some(MISSING_ASSETS_MESSAGE.to_string()),
+            );
+            return;
+        }
+
+        let Some((generation, existing_child)) =
+            self.begin_restart_if_generation(expected_generation)
+        else {
+            return;
+        };
+
+        self.continue_start(resources, generation, existing_child)
+            .await;
+    }
+
+    async fn continue_start(
+        &self,
+        resources: InferenceResourcePaths,
+        generation: u64,
+        existing_child: Option<Child>,
+    ) {
         terminate_child_if_present(existing_child);
         if !self.is_generation_current(generation) {
             return;
@@ -259,6 +291,28 @@ impl CleanupRuntimeManager {
             message: Some(PREPARING_MESSAGE.to_string()),
         };
         (generation, existing_child)
+    }
+
+    fn begin_restart_if_generation(
+        &self,
+        expected_generation: u64,
+    ) -> Option<(u64, Option<Child>)> {
+        let mut inner = self.inner.lock().expect("cleanup runtime lock");
+        if inner.generation != expected_generation
+            || inner.status.state != CleanupRuntimeState::Failed
+        {
+            return None;
+        }
+
+        inner.generation = inner.generation.wrapping_add(1);
+        let generation = inner.generation;
+        let existing_child = inner.child.take();
+        inner.base_url = None;
+        inner.status = CleanupRuntimeStatus {
+            state: CleanupRuntimeState::Starting,
+            message: Some(PREPARING_MESSAGE.to_string()),
+        };
+        Some((generation, existing_child))
     }
 
     fn store_started_child(&self, generation: u64, child: Child, base_url: String) -> bool {
@@ -491,5 +545,28 @@ mod tests {
         manager.shutdown();
 
         assert!(!manager.should_restart_for_generation(generation));
+    }
+
+    #[test]
+    fn guarded_restart_transition_is_invalidated_by_shutdown_generation() {
+        let manager = CleanupRuntimeManager::default();
+        manager.mark_failed_for_test("Offline punctuation stopped unexpectedly.");
+        let generation = manager.generation_for_test();
+
+        manager.shutdown();
+
+        assert!(manager.begin_restart_if_generation(generation).is_none());
+    }
+
+    #[test]
+    fn guarded_restart_transition_moves_failed_state_to_starting() {
+        let manager = CleanupRuntimeManager::default();
+        manager.mark_failed_for_test("Offline punctuation stopped unexpectedly.");
+        let generation = manager.generation_for_test();
+
+        let restart = manager.begin_restart_if_generation(generation);
+
+        assert!(restart.is_some());
+        assert_eq!(manager.status().state, CleanupRuntimeState::Starting);
     }
 }

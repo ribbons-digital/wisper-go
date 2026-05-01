@@ -42,15 +42,6 @@ export type CleanupRuntimeStatus = {
   message?: string | null;
 };
 
-export type OllamaSetupStatus = {
-  cliInstalled: boolean;
-  serverRunning: boolean;
-  modelInstalled: boolean;
-  model: string;
-  status: string;
-  message?: string | null;
-};
-
 export type CommandAction =
   | { kind: "new_line" }
   | { kind: "new_paragraph" }

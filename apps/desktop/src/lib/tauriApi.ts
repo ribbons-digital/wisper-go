@@ -5,7 +5,6 @@ import type {
   CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
-  OllamaSetupStatus,
   RecognitionLanguage,
   RecordingMode,
   StopRecordingOutput,
@@ -33,10 +32,6 @@ export async function recordingStatus(): Promise<"idle" | "recording"> {
 
 export async function fallbackPolicyLabel(): Promise<string> {
   return invoke<string>("fallback_policy_label");
-}
-
-export async function ensureOllamaSetup(): Promise<OllamaSetupStatus> {
-  return invoke<OllamaSetupStatus>("ensure_ollama_setup");
 }
 
 export function cleanupRuntimeStatus(): Promise<CleanupRuntimeStatus> {

@@ -2,7 +2,7 @@ use std::env;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
 use wispergo_core::audio::{trim_silence, VadConfig};
@@ -34,8 +34,16 @@ pub async fn stop_recording(
     state: State<'_, AppState>,
     reason: String,
 ) -> Result<StopRecordingOutput, String> {
+    let total_start = Instant::now();
+    let stop_start = Instant::now();
     let audio = state.stop_recording(&reason)?;
+    let stop_ms = stop_start.elapsed().as_millis();
+
+    let process_start = Instant::now();
     let result = process_recording(audio, state.local_model_settings()).await?;
+    let process_ms = process_start.elapsed().as_millis();
+
+    let insertion_start = Instant::now();
     let insertion = match &result {
         PipelineResult::InsertText { text, .. } => {
             let outcome = insert_text_detailed(text)?;
@@ -50,6 +58,15 @@ pub async fn stop_recording(
         PipelineResult::Cancelled { .. } => InsertionResult::CopiedOnly,
         PipelineResult::Error { message, .. } => return Err(message.clone()),
     };
+    let insertion_ms = insertion_start.elapsed().as_millis();
+    eprintln!(
+        "wispergo timing: stop_recording reason={} stop_ms={} process_ms={} insertion_ms={} total_ms={}",
+        reason,
+        stop_ms,
+        process_ms,
+        insertion_ms,
+        total_start.elapsed().as_millis()
+    );
 
     Ok(StopRecordingOutput { result, insertion })
 }
@@ -217,6 +234,20 @@ mod tests {
     }
 
     #[test]
+    fn recording_pipeline_logs_stage_timings_and_skips_ollama_for_cleanup_off() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/recording.rs"),
+        )
+        .expect("recording source");
+
+        assert!(source.contains("wispergo timing: stop_recording"));
+        assert!(source.contains("wispergo timing: process_recording"));
+        assert!(source.contains("cleanup_mode={:?}"));
+        assert!(source
+            .contains("CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await"));
+    }
+
+    #[test]
     fn ollama_cleanup_provider_uses_default_model_without_env_override() {
         let source = std::fs::read_to_string(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/recording.rs"),
@@ -254,24 +285,50 @@ async fn process_recording(
     audio: Vec<f32>,
     settings: LocalModelSettings,
 ) -> Result<PipelineResult, String> {
+    let total_start = Instant::now();
+    let capture_start = Instant::now();
     let capture = capture_stats(&audio);
+    let capture_ms = capture_start.elapsed().as_millis();
     eprintln!(
         "wispergo audio capture: samples={} duration_ms={} peak={:.4} rms={:.4}",
         capture.sample_count, capture.duration_ms, capture.peak, capture.rms
     );
 
+    let trim_start = Instant::now();
     let audio = trim_silence(&audio, dictation_vad_config());
+    let trim_ms = trim_start.elapsed().as_millis();
     if audio.is_empty() {
         return Err(no_speech_error(capture));
     }
 
+    let asr_start = Instant::now();
     let asr = local_asr_provider(&settings)?
         .transcribe(audio)
         .await
         .map_err(provider_error_message)?;
+    let asr_ms = asr_start.elapsed().as_millis();
 
-    let cleanup = ollama_cleanup_provider();
-    Ok(apply_cleanup_mode(asr, settings.cleanup_mode, cleanup.as_ref()).await)
+    let cleanup_mode = settings.cleanup_mode;
+    let cleanup_start = Instant::now();
+    let result = match cleanup_mode {
+        CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await,
+        CleanupMode::PunctuationOnly | CleanupMode::FullCleanup => {
+            let cleanup = ollama_cleanup_provider();
+            apply_cleanup_mode(asr, cleanup_mode, cleanup.as_ref()).await
+        }
+    };
+    let cleanup_ms = cleanup_start.elapsed().as_millis();
+    eprintln!(
+        "wispergo timing: process_recording capture_ms={} trim_ms={} asr_ms={} cleanup_ms={} total_ms={} cleanup_mode={:?}",
+        capture_ms,
+        trim_ms,
+        asr_ms,
+        cleanup_ms,
+        total_start.elapsed().as_millis(),
+        cleanup_mode
+    );
+
+    Ok(result)
 }
 
 async fn apply_cleanup_mode(

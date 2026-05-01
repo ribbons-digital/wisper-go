@@ -65,6 +65,7 @@ export function App() {
     recognitionLanguage: "auto",
     cleanupMode: "punctuation_only",
   });
+  const [modelSettingsLoaded, setModelSettingsLoaded] = useState(false);
   const [ollamaSetup, setOllamaSetup] = useState<OllamaSetupStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
@@ -82,7 +83,12 @@ export function App() {
   const queuedStopAfterStartRef = useRef(false);
 
   useEffect(() => {
-    if (isRecorderSurface || isLanguageSurface) {
+    if (isRecorderSurface || isLanguageSurface || !modelSettingsLoaded) {
+      return;
+    }
+
+    if (modelSettings.cleanupMode === "off") {
+      setOllamaSetup(null);
       return;
     }
 
@@ -110,7 +116,7 @@ export function App() {
     return () => {
       mounted = false;
     };
-  }, [isRecorderSurface, isLanguageSurface]);
+  }, [isRecorderSurface, isLanguageSurface, modelSettingsLoaded, modelSettings.cleanupMode]);
 
   useEffect(() => {
     document.documentElement.dataset.surface = surface;
@@ -267,6 +273,7 @@ export function App() {
       .then((nextSettings) => {
         if (mounted) {
           setModelSettings(nextSettings);
+          setModelSettingsLoaded(true);
         }
       })
       .catch(() => {
@@ -277,6 +284,7 @@ export function App() {
             recognitionLanguage: "auto",
             cleanupMode: "punctuation_only",
           });
+          setModelSettingsLoaded(true);
         }
       });
 

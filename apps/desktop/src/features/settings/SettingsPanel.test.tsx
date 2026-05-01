@@ -119,6 +119,27 @@ describe("SettingsPanel", () => {
     expect(screen.getByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
   });
 
+  it("hides Ollama status when cleanup mode is off", () => {
+    renderSettingsPanel({
+      modelSettings: {
+        whisperBinaryPath: "",
+        whisperModelPath: "",
+        recognitionLanguage: "auto",
+        cleanupMode: "off",
+      },
+      ollamaSetup: {
+        cliInstalled: true,
+        serverRunning: true,
+        modelInstalled: true,
+        model: "qwen2.5:0.5b",
+        status: "ready",
+        message: null,
+      },
+    });
+
+    expect(screen.queryByText(/Ollama ready for local cleanup/)).not.toBeInTheDocument();
+  });
+
   it("changes microphone input", async () => {
     const user = userEvent.setup();
     const onMicrophoneChange = vi.fn();

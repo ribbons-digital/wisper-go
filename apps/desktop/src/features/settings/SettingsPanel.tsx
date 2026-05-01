@@ -43,6 +43,7 @@ export function SettingsPanel({
   onModelSettingsSave,
 }: Props) {
   const [draftModelSettings, setDraftModelSettings] = useState(modelSettings);
+  const cleanupEnabled = draftModelSettings.cleanupMode !== "off";
 
   useEffect(() => {
     setDraftModelSettings(modelSettings);
@@ -117,7 +118,7 @@ export function SettingsPanel({
           Save model settings
         </button>
       </div>
-      {ollamaSetup ? <OllamaSetupNotice status={ollamaSetup} /> : null}
+      {cleanupEnabled && ollamaSetup ? <OllamaSetupNotice status={ollamaSetup} /> : null}
       <label>
         Microphone input
         <div className="microphone-row">

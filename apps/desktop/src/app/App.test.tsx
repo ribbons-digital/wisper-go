@@ -200,11 +200,29 @@ describe("App", () => {
     });
   });
 
-  it("checks Ollama setup on startup and renders status", async () => {
+  it("checks Ollama setup after cleanup-enabled settings load and renders status", async () => {
     render(<App />);
 
-    expect(ensureOllamaSetup).toHaveBeenCalled();
     expect(await screen.findByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
+    expect(ensureOllamaSetup).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not check Ollama setup when saved cleanup mode is off", async () => {
+    vi.mocked(localModelSettings).mockResolvedValueOnce({
+      whisperBinaryPath: "/usr/local/bin/whisper-cli",
+      whisperModelPath: "/models/base.bin",
+      recognitionLanguage: "auto",
+      cleanupMode: "off",
+    });
+
+    render(<App />);
+    expect(await screen.findByDisplayValue("/usr/local/bin/whisper-cli")).toBeInTheDocument();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(ensureOllamaSetup).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Ollama ready for local cleanup/)).not.toBeInTheDocument();
   });
 
   it("renders Ollama install prompt when the CLI is missing", async () => {

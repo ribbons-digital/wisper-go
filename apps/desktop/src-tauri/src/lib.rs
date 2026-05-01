@@ -9,10 +9,10 @@ mod trigger;
 
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
-    accessibility_status, fallback_policy_label, list_microphones, load_persisted_settings,
-    local_model_settings, microphone_status, recognition_language, request_accessibility,
-    request_microphone_access, selected_microphone_id, set_local_model_settings,
-    set_microphone_device, set_recognition_language,
+    accessibility_status, ensure_ollama_setup, fallback_policy_label, list_microphones,
+    load_persisted_settings, local_model_settings, microphone_status, recognition_language,
+    request_accessibility, request_microphone_access, selected_microphone_id,
+    set_local_model_settings, set_microphone_device, set_recognition_language,
 };
 use state::AppState;
 use tauri::{Emitter, Manager};
@@ -65,6 +65,7 @@ pub fn run() {
             cancel_recording,
             recording_status,
             fallback_policy_label,
+            ensure_ollama_setup,
             list_microphones,
             selected_microphone_id,
             set_microphone_device,
@@ -566,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn app_registers_recognition_language_commands() {
+    fn app_registers_recognition_language_and_ollama_setup_commands() {
         let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
             .expect("lib source");
         let production_source = source
@@ -588,6 +589,7 @@ mod tests {
         assert!(registered_commands.contains(&"recognition_language"));
         assert!(registered_commands.contains(&"set_recognition_language"));
         assert!(registered_commands.contains(&"set_language_menu_open"));
+        assert!(registered_commands.contains(&"ensure_ollama_setup"));
     }
 
     #[test]

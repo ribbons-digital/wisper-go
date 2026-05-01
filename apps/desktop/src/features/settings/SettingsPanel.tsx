@@ -4,6 +4,7 @@ import type {
   AudioInputDevice,
   LocalModelSettings,
   MicrophoneStatus,
+  OllamaSetupStatus,
 } from "../../types/pipeline";
 
 type PermissionRequest = "microphone" | "accessibility";
@@ -15,6 +16,7 @@ type Props = {
   microphone: MicrophoneStatus;
   accessibility: AccessibilityStatus;
   modelSettings: LocalModelSettings;
+  ollamaSetup?: OllamaSetupStatus | null;
   requestingPermission?: PermissionRequest | null;
   onMicrophoneChange: (deviceId: string) => void;
   onRefreshMicrophones: () => void;
@@ -31,6 +33,7 @@ export function SettingsPanel({
   microphone,
   accessibility,
   modelSettings,
+  ollamaSetup = null,
   requestingPermission = null,
   onMicrophoneChange,
   onRefreshMicrophones,
@@ -94,10 +97,27 @@ export function SettingsPanel({
             <option value="zh">Chinese</option>
           </select>
         </label>
+        <label>
+          Cleanup mode
+          <select
+            value={draftModelSettings.cleanupMode}
+            onChange={(event) =>
+              setDraftModelSettings((current) => ({
+                ...current,
+                cleanupMode: event.target.value as LocalModelSettings["cleanupMode"],
+              }))
+            }
+          >
+            <option value="off">Off (raw transcript)</option>
+            <option value="punctuation_only">Punctuation only</option>
+            <option value="full_cleanup">Full cleanup and commands</option>
+          </select>
+        </label>
         <button type="button" onClick={() => onModelSettingsSave(draftModelSettings)}>
           Save model settings
         </button>
       </div>
+      {ollamaSetup ? <OllamaSetupNotice status={ollamaSetup} /> : null}
       <label>
         Microphone input
         <div className="microphone-row">
@@ -150,5 +170,41 @@ export function SettingsPanel({
       </div>
       <p>Fallback policy: {fallbackPolicy}</p>
     </section>
+  );
+}
+
+function OllamaSetupNotice({ status }: { status: OllamaSetupStatus }) {
+  if (!status.cliInstalled) {
+    return (
+      <div className="ollama-setup" aria-live="polite">
+        Install Ollama to enable local punctuation cleanup. Download it from
+        {" "}
+        <a href="https://ollama.com/download">https://ollama.com/download</a>, then reopen
+        Wispergo.
+      </div>
+    );
+  }
+
+  if (!status.serverRunning) {
+    return (
+      <div className="ollama-setup" aria-live="polite">
+        Starting Ollama for local cleanup… {status.message ?? "Try again in a moment."}
+      </div>
+    );
+  }
+
+  if (!status.modelInstalled) {
+    return (
+      <div className="ollama-setup" aria-live="polite">
+        Preparing local cleanup model {status.model}. {status.message ??
+          "Wispergo will use raw transcripts until the model is ready."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="ollama-setup" aria-live="polite">
+      Ollama ready for local cleanup: {status.model}
+    </div>
   );
 }

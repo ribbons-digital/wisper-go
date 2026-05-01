@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use crate::domain::PipelineResult;
 use crate::providers::{CleanupInput, CleanupOutput, CleanupProvider, ProviderError};
 
+pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:0.5b";
+
 #[derive(Debug, Clone)]
 pub struct OllamaCleanupProvider {
     base_url: String,
@@ -19,6 +21,34 @@ impl OllamaCleanupProvider {
             model,
             client: Client::new(),
         }
+    }
+
+    pub async fn clean_punctuation_only(
+        &self,
+        input: CleanupInput,
+    ) -> Result<String, ProviderError> {
+        let request = OllamaChatRequest {
+            model: self.model.clone(),
+            stream: false,
+            messages: vec![
+                OllamaMessage {
+                    role: "system".to_string(),
+                    content: punctuation_system_prompt(),
+                },
+                OllamaMessage {
+                    role: "user".to_string(),
+                    content: punctuation_user_prompt(&input),
+                },
+            ],
+        };
+
+        let body = tokio::time::timeout(input.timeout, self.send_chat(request))
+            .await
+            .map_err(|_| ProviderError::Timeout {
+                provider: "ollama".to_string(),
+            })??;
+
+        parse_punctuation_cleanup_json(&body.message.content)
     }
 }
 
@@ -85,6 +115,17 @@ impl OllamaCleanupProvider {
     }
 }
 
+pub fn parse_punctuation_cleanup_json(input: &str) -> Result<String, ProviderError> {
+    let output = serde_json::from_str::<PunctuationCleanupOutput>(input).map_err(|err| {
+        ProviderError::InvalidOutput {
+            provider: "ollama".to_string(),
+            message: err.to_string(),
+        }
+    })?;
+
+    Ok(output.text)
+}
+
 pub fn parse_cleanup_json(input: &str) -> Result<CleanupOutput, ProviderError> {
     let mut output = serde_json::from_str::<CleanupOutput>(input).map_err(|err| {
         ProviderError::InvalidOutput {
@@ -117,6 +158,19 @@ fn cleanup_user_prompt(input: &CleanupInput) -> String {
         input.transcript,
         input.selected_text.as_deref().unwrap_or("")
     )
+}
+
+fn punctuation_system_prompt() -> String {
+    "Punctuation-only cleanup. Return only JSON with a text field. Add punctuation and capitalization only. Preserve the exact words, language, and script from the transcript. Do not translate, paraphrase, summarize, add or remove words, classify commands, or execute commands.".to_string()
+}
+
+fn punctuation_user_prompt(input: &CleanupInput) -> String {
+    format!("Transcript: {}", input.transcript)
+}
+
+#[derive(Debug, Deserialize)]
+struct PunctuationCleanupOutput {
+    text: String,
 }
 
 #[derive(Debug, Serialize)]

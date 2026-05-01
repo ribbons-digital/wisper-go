@@ -26,11 +26,22 @@ export type MicrophoneStatus = {
 };
 
 export type RecognitionLanguage = "auto" | "en" | "zh";
+export type CleanupMode = "off" | "punctuation_only" | "full_cleanup";
 
 export type LocalModelSettings = {
   whisperBinaryPath: string;
   whisperModelPath: string;
   recognitionLanguage: RecognitionLanguage;
+  cleanupMode: CleanupMode;
+};
+
+export type OllamaSetupStatus = {
+  cliInstalled: boolean;
+  serverRunning: boolean;
+  modelInstalled: boolean;
+  model: string;
+  status: string;
+  message?: string | null;
 };
 
 export type CommandAction =

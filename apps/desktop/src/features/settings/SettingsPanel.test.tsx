@@ -16,6 +16,7 @@ function renderSettingsPanel(overrides: Partial<SettingsPanelProps> = {}) {
       whisperBinaryPath: "",
       whisperModelPath: "",
       recognitionLanguage: "auto",
+      cleanupMode: "punctuation_only",
     },
     requestingPermission: null,
     onMicrophoneChange: vi.fn(),
@@ -48,6 +49,7 @@ describe("SettingsPanel", () => {
       whisperBinaryPath: "/opt/homebrew/bin/whisper-cli",
       whisperModelPath: "/models/ggml-base.en.bin",
       recognitionLanguage: "auto",
+      cleanupMode: "punctuation_only",
     });
   });
 
@@ -63,7 +65,58 @@ describe("SettingsPanel", () => {
       whisperBinaryPath: "",
       whisperModelPath: "",
       recognitionLanguage: "zh",
+      cleanupMode: "punctuation_only",
     });
+  });
+
+  it("saves cleanup mode with local model settings", async () => {
+    const user = userEvent.setup();
+    const onModelSettingsSave = vi.fn();
+    renderSettingsPanel({ onModelSettingsSave });
+
+    await user.selectOptions(screen.getByLabelText("Cleanup mode"), "full_cleanup");
+    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+
+    expect(onModelSettingsSave).toHaveBeenCalledWith({
+      whisperBinaryPath: "",
+      whisperModelPath: "",
+      recognitionLanguage: "auto",
+      cleanupMode: "full_cleanup",
+    });
+  });
+
+  it("shows Ollama install instructions when the CLI is missing", () => {
+    renderSettingsPanel({
+      ollamaSetup: {
+        cliInstalled: false,
+        serverRunning: false,
+        modelInstalled: false,
+        model: "qwen2.5:0.5b",
+        status: "cli_missing",
+        message: "Install Ollama",
+      },
+    });
+
+    expect(screen.getByText(/Install Ollama to enable local punctuation cleanup/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "https://ollama.com/download" })).toHaveAttribute(
+      "href",
+      "https://ollama.com/download",
+    );
+  });
+
+  it("shows ready Ollama status", () => {
+    renderSettingsPanel({
+      ollamaSetup: {
+        cliInstalled: true,
+        serverRunning: true,
+        modelInstalled: true,
+        model: "qwen2.5:0.5b",
+        status: "ready",
+        message: null,
+      },
+    });
+
+    expect(screen.getByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
   });
 
   it("changes microphone input", async () => {

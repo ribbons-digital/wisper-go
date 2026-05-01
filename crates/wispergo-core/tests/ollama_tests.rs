@@ -2,7 +2,9 @@ use std::time::Duration;
 
 use httpmock::prelude::*;
 use wispergo_core::domain::{CommandAction, CommandSource, PipelineResult};
-use wispergo_core::ollama::{parse_cleanup_json, OllamaCleanupProvider};
+use wispergo_core::ollama::{
+    parse_cleanup_json, parse_punctuation_cleanup_json, OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL,
+};
 use wispergo_core::providers::{CleanupInput, CleanupProvider, ProviderError};
 
 #[test]
@@ -63,6 +65,50 @@ async fn calls_ollama_chat_api_and_parses_json_content() {
 
     mock.assert();
     assert!(matches!(output.result, PipelineResult::InsertText { .. }));
+}
+
+#[test]
+fn parses_punctuation_only_response_text() {
+    let output = parse_punctuation_cleanup_json(r#"{"text":"Hello, world."}"#)
+        .expect("parse punctuation response");
+
+    assert_eq!(output, "Hello, world.");
+}
+
+#[tokio::test]
+async fn calls_ollama_chat_api_for_punctuation_only_cleanup() {
+    let server = MockServer::start();
+    let body = serde_json::json!({
+        "message": {
+            "content": r#"{"text":"Hello, world."}"#
+        }
+    });
+
+    let mock = server.mock(|when, then| {
+        when.method(POST)
+            .path("/api/chat")
+            .body_contains(DEFAULT_OLLAMA_MODEL)
+            .body_contains("Punctuation-only cleanup")
+            .body_contains("Preserve the exact words, language, and script")
+            .body_contains("Do not translate, paraphrase")
+            .body_contains("Transcript: hello world");
+        then.status(200)
+            .header("content-type", "application/json")
+            .json_body(body);
+    });
+
+    let provider = OllamaCleanupProvider::new(server.base_url(), DEFAULT_OLLAMA_MODEL.to_string());
+    let output = provider
+        .clean_punctuation_only(CleanupInput {
+            transcript: "hello world".to_string(),
+            selected_text: Some("ignored selection".to_string()),
+            timeout: Duration::from_secs(2),
+        })
+        .await
+        .expect("punctuation cleanup output");
+
+    mock.assert();
+    assert_eq!(output, "Hello, world.");
 }
 
 #[tokio::test]

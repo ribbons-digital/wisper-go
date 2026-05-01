@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import {
   accessibilityStatus,
+  ensureOllamaSetup,
   listMicrophones,
   localModelSettings,
   microphoneStatus,
@@ -33,11 +34,20 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("../lib/tauriApi", () => ({
   accessibilityStatus: vi.fn().mockResolvedValue({ granted: false, canPrompt: true }),
   cancelRecording: vi.fn().mockResolvedValue(undefined),
+  ensureOllamaSetup: vi.fn().mockResolvedValue({
+    cliInstalled: true,
+    serverRunning: true,
+    modelInstalled: true,
+    model: "qwen2.5:0.5b",
+    status: "ready",
+    message: null,
+  }),
   fallbackPolicyLabel: vi.fn().mockResolvedValue("prefer_local_ask_before_cloud"),
   localModelSettings: vi.fn().mockResolvedValue({
     whisperBinaryPath: "/usr/local/bin/whisper-cli",
     whisperModelPath: "/models/base.bin",
     recognitionLanguage: "auto",
+    cleanupMode: "punctuation_only",
   }),
   listMicrophones: vi.fn().mockResolvedValue([
     { id: "default", name: "System Default", isDefault: true },
@@ -65,6 +75,7 @@ describe("App", () => {
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.mocked(accessibilityStatus).mockReset();
+    vi.mocked(ensureOllamaSetup).mockReset();
     vi.mocked(localModelSettings).mockReset();
     vi.mocked(listMicrophones).mockReset();
     vi.mocked(microphoneStatus).mockReset();
@@ -81,10 +92,19 @@ describe("App", () => {
     eventListeners.clear();
     window.history.pushState({}, "", "/");
     vi.mocked(accessibilityStatus).mockResolvedValue({ granted: false, canPrompt: true });
+    vi.mocked(ensureOllamaSetup).mockResolvedValue({
+      cliInstalled: true,
+      serverRunning: true,
+      modelInstalled: true,
+      model: "qwen2.5:0.5b",
+      status: "ready",
+      message: null,
+    });
     vi.mocked(localModelSettings).mockResolvedValue({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
       recognitionLanguage: "auto",
+      cleanupMode: "punctuation_only",
     });
     vi.mocked(listMicrophones).mockResolvedValue([
       { id: "default", name: "System Default", isDefault: true },
@@ -176,7 +196,30 @@ describe("App", () => {
       whisperBinaryPath: "/opt/homebrew/bin/whisper-cli",
       whisperModelPath: "/models/small.bin",
       recognitionLanguage: "auto",
+      cleanupMode: "punctuation_only",
     });
+  });
+
+  it("checks Ollama setup on startup and renders status", async () => {
+    render(<App />);
+
+    expect(ensureOllamaSetup).toHaveBeenCalled();
+    expect(await screen.findByText("Ollama ready for local cleanup: qwen2.5:0.5b")).toBeInTheDocument();
+  });
+
+  it("renders Ollama install prompt when the CLI is missing", async () => {
+    vi.mocked(ensureOllamaSetup).mockResolvedValueOnce({
+      cliInstalled: false,
+      serverRunning: false,
+      modelInstalled: false,
+      model: "qwen2.5:0.5b",
+      status: "cli_missing",
+      message: "Install Ollama",
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText(/Install Ollama to enable local punctuation cleanup/)).toBeInTheDocument();
   });
 
   it("requests accessibility permission from the setup panel", async () => {

@@ -7,13 +7,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
 use wispergo_core::audio::{trim_silence, VadConfig};
 use wispergo_core::domain::PipelineResult;
-use wispergo_core::ollama::OllamaCleanupProvider;
-use wispergo_core::providers::{AsrProvider, CleanupInput, CleanupProvider, ProviderError};
+use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
+use wispergo_core::providers::{
+    AsrOutput, AsrProvider, CleanupInput, CleanupProvider, ProviderError,
+};
 use wispergo_core::whisper_sidecar::WhisperSidecarProvider;
 
 use crate::audio::{capture_stats, AudioCaptureStats};
 use crate::insertion::clipboard::{insert_text_detailed, InsertionDiagnostics, InsertionResult};
-use crate::state::{AppState, LocalModelSettings, RecordingStatus};
+use crate::state::{AppState, CleanupMode, LocalModelSettings, RecordingStatus};
 
 #[derive(Debug, serde::Serialize)]
 pub struct StopRecordingOutput {
@@ -121,7 +123,7 @@ mod tests {
         InsertionStepStatus,
     };
     use crate::state::LocalModelSettings;
-    use crate::state::{AppState, RecordingSession, RecordingStatus};
+    use crate::state::{AppState, CleanupMode, RecordingSession, RecordingStatus};
 
     #[test]
     fn start_and_cancel_recording_update_state() {
@@ -142,6 +144,7 @@ mod tests {
             whisper_binary_path: Some("/settings/whisper-cli".to_string()),
             whisper_model_path: Some("/settings/model.bin".to_string()),
             recognition_language: crate::state::RecognitionLanguage::Auto,
+            cleanup_mode: CleanupMode::PunctuationOnly,
         })
         .expect("resolve paths");
 
@@ -200,6 +203,30 @@ mod tests {
     }
 
     #[test]
+    fn recording_pipeline_branches_on_cleanup_mode() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/recording.rs"),
+        )
+        .expect("recording source");
+
+        assert!(source.contains("CleanupMode::Off => raw_result"));
+        assert!(source.contains("CleanupMode::PunctuationOnly"));
+        assert!(source.contains("clean_punctuation_only"));
+        assert!(source.contains("CleanupMode::FullCleanup"));
+        assert!(source.contains(".clean(CleanupInput"));
+    }
+
+    #[test]
+    fn ollama_cleanup_provider_uses_default_model_without_env_override() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/commands/recording.rs"),
+        )
+        .expect("recording source");
+
+        assert!(source.contains("DEFAULT_OLLAMA_MODEL.to_string()"));
+    }
+
+    #[test]
     fn no_speech_error_distinguishes_empty_capture_from_silence() {
         assert_eq!(
             super::no_speech_error(AudioCaptureStats {
@@ -243,25 +270,56 @@ async fn process_recording(
         .await
         .map_err(provider_error_message)?;
 
+    let cleanup = ollama_cleanup_provider();
+    Ok(apply_cleanup_mode(asr, settings.cleanup_mode, cleanup.as_ref()).await)
+}
+
+async fn apply_cleanup_mode(
+    asr: AsrOutput,
+    cleanup_mode: CleanupMode,
+    cleanup: Option<&OllamaCleanupProvider>,
+) -> PipelineResult {
     let raw_result = PipelineResult::InsertText {
         text: asr.transcript.clone(),
-        source: asr.source,
+        source: asr.source.clone(),
         confidence: asr.confidence,
     };
 
-    let Some(cleanup) = ollama_cleanup_provider() else {
-        return Ok(raw_result);
-    };
-
-    let cleanup = cleanup
-        .clean(CleanupInput {
-            transcript: asr.transcript,
-            selected_text: None,
-            timeout: Duration::from_secs(3),
-        })
-        .await;
-
-    Ok(cleanup.map(|output| output.result).unwrap_or(raw_result))
+    match cleanup_mode {
+        CleanupMode::Off => raw_result,
+        CleanupMode::PunctuationOnly => {
+            let Some(cleanup) = cleanup else {
+                return raw_result;
+            };
+            cleanup
+                .clean_punctuation_only(CleanupInput {
+                    transcript: asr.transcript,
+                    selected_text: None,
+                    timeout: Duration::from_secs(3),
+                })
+                .await
+                .map(|text| PipelineResult::InsertText {
+                    text,
+                    source: asr.source,
+                    confidence: asr.confidence,
+                })
+                .unwrap_or(raw_result)
+        }
+        CleanupMode::FullCleanup => {
+            let Some(cleanup) = cleanup else {
+                return raw_result;
+            };
+            cleanup
+                .clean(CleanupInput {
+                    transcript: asr.transcript,
+                    selected_text: None,
+                    timeout: Duration::from_secs(3),
+                })
+                .await
+                .map(|output| output.result)
+                .unwrap_or(raw_result)
+        }
+    }
 }
 
 fn dictation_vad_config() -> VadConfig {
@@ -338,7 +396,8 @@ fn find_in_path(binary: &str) -> Option<PathBuf> {
 }
 
 fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {
-    let model = env::var("WISPERGO_OLLAMA_MODEL").ok()?;
+    let model =
+        env::var("WISPERGO_OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_string());
     let base_url = env::var("WISPERGO_OLLAMA_BASE_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
     Some(OllamaCleanupProvider::new(base_url, model))

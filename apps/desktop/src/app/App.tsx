@@ -5,6 +5,7 @@ import { LanguageToggle } from "../features/recorder/LanguageToggle";
 import { SettingsPanel } from "../features/settings/SettingsPanel";
 import {
   accessibilityStatus,
+  ensureOllamaSetup,
   fallbackPolicyLabel,
   listMicrophones,
   localModelSettings,
@@ -26,6 +27,7 @@ import type {
   AudioInputDevice,
   LocalModelSettings,
   MicrophoneStatus,
+  OllamaSetupStatus,
   RecognitionLanguage,
   StopRecordingOutput,
 } from "../types/pipeline";
@@ -61,7 +63,9 @@ export function App() {
     whisperBinaryPath: "",
     whisperModelPath: "",
     recognitionLanguage: "auto",
+    cleanupMode: "punctuation_only",
   });
+  const [ollamaSetup, setOllamaSetup] = useState<OllamaSetupStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
@@ -76,6 +80,37 @@ export function App() {
   const languageMenuOpenRef = useRef(false);
   const holdDownRef = useRef(false);
   const queuedStopAfterStartRef = useRef(false);
+
+  useEffect(() => {
+    if (isRecorderSurface || isLanguageSurface) {
+      return;
+    }
+
+    let mounted = true;
+
+    void ensureOllamaSetup()
+      .then((status) => {
+        if (mounted) {
+          setOllamaSetup(status);
+        }
+      })
+      .catch((err: unknown) => {
+        if (mounted) {
+          setOllamaSetup({
+            cliInstalled: false,
+            serverRunning: false,
+            modelInstalled: false,
+            model: "qwen2.5:0.5b",
+            status: "unavailable",
+            message: errorMessage(err),
+          });
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [isRecorderSurface, isLanguageSurface]);
 
   useEffect(() => {
     document.documentElement.dataset.surface = surface;
@@ -240,6 +275,7 @@ export function App() {
             whisperBinaryPath: "",
             whisperModelPath: "",
             recognitionLanguage: "auto",
+            cleanupMode: "punctuation_only",
           });
         }
       });
@@ -512,6 +548,7 @@ export function App() {
           microphone={microphone}
           accessibility={accessibility}
           modelSettings={modelSettings}
+          ollamaSetup={ollamaSetup}
           requestingPermission={requestingPermission}
           onMicrophoneChange={(deviceId) => {
             setSelectedMic(deviceId);

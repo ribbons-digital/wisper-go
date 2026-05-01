@@ -7,7 +7,7 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, and
 - Hold `Command + Shift + Space` to dictate.
 - Local speech recognition through a whisper.cpp-compatible binary (`whisper-cli` or `whisper-cpp`).
 - Recognition language modes: Auto, English, and Chinese.
-- Optional Ollama cleanup step for formatting/classifying transcripts without translating their original language.
+- Optional local Ollama cleanup for punctuation-only cleanup or full cleanup/classification without translating original language.
 - Floating status-only recorder pill.
 - Separate floating language control that cycles Auto → EN → ZH.
 - macOS microphone and accessibility permission handling.
@@ -26,7 +26,11 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, and
    - **Auto**: let Whisper detect the language.
    - **English**: passes `--language en`.
    - **Chinese**: passes `--language zh`.
-7. Hold `Command + Shift + Space`, speak, then release to transcribe and insert.
+7. Choose a cleanup mode:
+   - **Off**: insert the raw Whisper transcript.
+   - **Punctuation only**: default; uses local Ollama to add punctuation/capitalization only.
+   - **Full cleanup and commands**: uses local Ollama for the existing cleanup/classification flow.
+8. Hold `Command + Shift + Space`, speak, then release to transcribe and insert.
 
 You can also configure ASR through environment variables:
 
@@ -35,14 +39,14 @@ export WISPERGO_WHISPER_BIN=/path/to/whisper-cli
 export WISPERGO_WHISPER_MODEL=/path/to/model.bin
 ```
 
-Optional Ollama cleanup:
+Local Ollama cleanup:
 
 ```bash
-export WISPERGO_OLLAMA_MODEL=llama3.2
+export WISPERGO_OLLAMA_MODEL=qwen2.5:0.5b
 export WISPERGO_OLLAMA_BASE_URL=http://127.0.0.1:11434
 ```
 
-If `WISPERGO_OLLAMA_MODEL` is not set, Wispergo inserts the raw Whisper transcript.
+Wispergo checks for the Ollama CLI at startup. If it is installed, Wispergo attempts to start `ollama serve` when needed and pull the configured cleanup model when it is missing. If Ollama is unavailable or cleanup fails, dictation falls back to the raw Whisper transcript.
 
 ## Development
 
@@ -53,7 +57,7 @@ If `WISPERGO_OLLAMA_MODEL` is not set, Wispergo inserts the raw Whisper transcri
 - Node.js + pnpm
 - Tauri v2 dependencies
 - A whisper.cpp-compatible binary and local model for runtime transcription
-- Optional: Ollama for transcript cleanup
+- Optional: Ollama for punctuation/full cleanup (`qwen2.5:0.5b` is the default model)
 
 ### Install dependencies
 
@@ -136,7 +140,7 @@ Core runtime flow:
 1. Global shortcut starts/stops recording.
 2. Desktop app captures microphone audio.
 3. Audio is trimmed and sent to local Whisper sidecar.
-4. Optional Ollama cleanup/classification runs with a short timeout.
+4. Cleanup mode decides whether to skip cleanup, run punctuation-only local Ollama cleanup, or run full local Ollama cleanup/classification.
 5. Result is inserted into the focused app or copied when insertion is unavailable.
 
 ## Troubleshooting
@@ -169,5 +173,5 @@ The language toggle is a separate Tauri window. On macOS, Wispergo uses native m
 ## Notes
 
 - Wispergo is local-first: speech recognition uses local Whisper configuration.
-- Ollama cleanup is optional and only enabled when `WISPERGO_OLLAMA_MODEL` is set.
+- Ollama cleanup is local-only. The default cleanup mode is punctuation-only with `qwen2.5:0.5b`.
 - Chinese recognition uses Whisper’s generic `zh` language code; Wispergo does not convert between Simplified and Traditional Chinese.

@@ -44,6 +44,41 @@ impl<'de> serde::Deserialize<'de> for RecognitionLanguage {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupMode {
+    Off,
+    #[default]
+    PunctuationOnly,
+    FullCleanup,
+}
+
+impl CleanupMode {
+    pub fn from_code(code: Option<&str>) -> Self {
+        match code
+            .unwrap_or_default()
+            .trim()
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "off" => Self::Off,
+            "full_cleanup" => Self::FullCleanup,
+            "punctuation_only" => Self::PunctuationOnly,
+            _ => Self::PunctuationOnly,
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for CleanupMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Self::from_code(value.as_deref()))
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalModelSettings {
@@ -51,6 +86,8 @@ pub struct LocalModelSettings {
     pub whisper_model_path: Option<String>,
     #[serde(default)]
     pub recognition_language: RecognitionLanguage,
+    #[serde(default)]
+    pub cleanup_mode: CleanupMode,
 }
 
 impl LocalModelSettings {
@@ -59,6 +96,7 @@ impl LocalModelSettings {
             whisper_binary_path: normalize_optional_path(self.whisper_binary_path),
             whisper_model_path: normalize_optional_path(self.whisper_model_path),
             recognition_language: self.recognition_language,
+            cleanup_mode: self.cleanup_mode,
         }
     }
 
@@ -67,6 +105,7 @@ impl LocalModelSettings {
             whisper_binary_path: Some(self.whisper_binary_path.clone().unwrap_or_default()),
             whisper_model_path: Some(self.whisper_model_path.clone().unwrap_or_default()),
             recognition_language: self.recognition_language,
+            cleanup_mode: self.cleanup_mode,
         }
     }
 }
@@ -197,7 +236,7 @@ impl AppState {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, RecognitionLanguage, RecordingSession, RecordingStatus};
+    use super::{AppState, CleanupMode, RecognitionLanguage, RecordingSession, RecordingStatus};
 
     #[test]
     fn selected_microphone_round_trips() {
@@ -219,6 +258,7 @@ mod tests {
             whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
             whisper_model_path: Some("/models/base.bin".to_string()),
             recognition_language: RecognitionLanguage::Auto,
+            cleanup_mode: CleanupMode::PunctuationOnly,
         });
 
         assert_eq!(
@@ -227,6 +267,7 @@ mod tests {
                 whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
                 whisper_model_path: Some("/models/base.bin".to_string()),
                 recognition_language: RecognitionLanguage::Auto,
+                cleanup_mode: CleanupMode::PunctuationOnly,
             }
         );
     }
@@ -242,6 +283,16 @@ mod tests {
     }
 
     #[test]
+    fn local_model_settings_default_to_punctuation_only_cleanup() {
+        let state = AppState::default();
+
+        assert_eq!(
+            state.local_model_settings().cleanup_mode,
+            CleanupMode::PunctuationOnly
+        );
+    }
+
+    #[test]
     fn local_model_settings_language_round_trip() {
         let state = AppState::default();
 
@@ -249,6 +300,7 @@ mod tests {
             whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
             whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
             recognition_language: RecognitionLanguage::Zh,
+            cleanup_mode: CleanupMode::FullCleanup,
         });
 
         assert_eq!(
@@ -257,6 +309,7 @@ mod tests {
                 whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
                 whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
                 recognition_language: RecognitionLanguage::Zh,
+                cleanup_mode: CleanupMode::FullCleanup,
             }
         );
     }
@@ -276,6 +329,39 @@ mod tests {
         assert_eq!(RecognitionLanguage::Auto.whisper_code(), None);
         assert_eq!(RecognitionLanguage::En.whisper_code(), Some("en"));
         assert_eq!(RecognitionLanguage::Zh.whisper_code(), Some("zh"));
+    }
+
+    #[test]
+    fn missing_cleanup_mode_deserializes_to_punctuation_only() {
+        let settings: super::LocalModelSettings = serde_json::from_str(
+            r#"{"whisperBinaryPath":"/bin/whisper-cli","whisperModelPath":"/models/model.bin"}"#,
+        )
+        .expect("settings deserialize");
+
+        assert_eq!(settings.cleanup_mode, CleanupMode::PunctuationOnly);
+    }
+
+    #[test]
+    fn invalid_cleanup_mode_deserializes_to_punctuation_only() {
+        let settings: super::LocalModelSettings = serde_json::from_str(
+            r#"{"whisperBinaryPath":"/bin/whisper-cli","whisperModelPath":"/models/model.bin","cleanupMode":"translate_everything"}"#,
+        )
+        .expect("settings deserialize");
+
+        assert_eq!(settings.cleanup_mode, CleanupMode::PunctuationOnly);
+    }
+
+    #[test]
+    fn cleanup_mode_serializes_as_snake_case() {
+        let json = serde_json::to_value(super::LocalModelSettings {
+            whisper_binary_path: None,
+            whisper_model_path: None,
+            recognition_language: RecognitionLanguage::Auto,
+            cleanup_mode: CleanupMode::FullCleanup,
+        })
+        .expect("settings serialize");
+
+        assert_eq!(json["cleanupMode"], "full_cleanup");
     }
 
     #[test]

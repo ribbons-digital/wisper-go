@@ -53,6 +53,7 @@ select {
   align-content: center;
   justify-content: center;
   overflow: hidden;
+  border-radius: 999px;
 }
 
 .settings-panel {
@@ -70,8 +71,6 @@ select {
   color: #ffffff;
   box-shadow: none;
   transition:
-    width 180ms ease,
-    height 180ms ease,
     opacity 160ms ease,
     transform 180ms ease;
 }

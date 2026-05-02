@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -585,7 +585,7 @@ describe("App", () => {
     expect(selectedMicrophoneId).not.toHaveBeenCalled();
   });
 
-  it("reveals the language chevron from native hover while the app is inactive", async () => {
+  it("reveals the language chevron from native hover without echoing native hover on", async () => {
     window.history.pushState({}, "", "/?surface=language");
 
     render(<App />);
@@ -595,9 +595,29 @@ describe("App", () => {
 
     await emitLanguageHover(true);
     expect(toggle).toHaveClass("is-native-hovered");
-    expect(setFloatingChromeReason).toHaveBeenCalledWith("language_hover", true);
+    expect(setFloatingChromeReason).not.toHaveBeenCalledWith("language_hover", true);
 
     await emitLanguageHover(false);
+    expect(toggle).not.toHaveClass("is-native-hovered");
+    expect(setFloatingChromeReason).not.toHaveBeenCalledWith("language_hover", false);
+  });
+
+  it("clears native language hover from the active webview on mouse leave", async () => {
+    window.history.pushState({}, "", "/?surface=language");
+
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "Recognition language: Auto" });
+    const toggle = button.closest(".language-toggle");
+    if (!toggle) {
+      throw new Error("language toggle missing");
+    }
+
+    await emitLanguageHover(true);
+    expect(toggle).toHaveClass("is-native-hovered");
+    vi.mocked(setFloatingChromeReason).mockClear();
+
+    fireEvent.mouseLeave(toggle);
+
     expect(toggle).not.toHaveClass("is-native-hovered");
     expect(setFloatingChromeReason).toHaveBeenCalledWith("language_hover", false);
   });

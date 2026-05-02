@@ -231,9 +231,6 @@ export function App() {
       }
 
       setLanguageNativeHovered(event.payload);
-      void setFloatingChromeReason("language_hover", event.payload).catch((err: unknown) => {
-        setError(errorMessage(err));
-      });
       if (!event.payload && languageMenuOpenRef.current) {
         updateLanguageMenuOpen(false);
       }
@@ -623,7 +620,12 @@ export function App() {
             updateLanguageMenuOpen(false);
           }}
           onMenuOpenChange={updateLanguageMenuOpen}
-          onNativeHoverEnd={() => setLanguageNativeHovered(false)}
+          onNativeHoverEnd={() => {
+            setLanguageNativeHovered(false);
+            void setFloatingChromeReason("language_hover", false).catch((err: unknown) => {
+              setError(errorMessage(err));
+            });
+          }}
         />
       ) : null}
       {lastInsert ? (

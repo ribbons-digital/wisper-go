@@ -746,46 +746,6 @@ fn language_window_top_for_aligned_toggle_bar(
     (recorder_center_y - language_height as f64 + toggle_bar_height as f64 / 2.0).round() as i32
 }
 
-fn configured_window_physical_width(
-    app: &tauri::AppHandle,
-    label: &str,
-    scale_factor: f64,
-) -> Option<u32> {
-    app.config()
-        .app
-        .windows
-        .iter()
-        .find(|window| window.label.as_str() == label)
-        .map(|window| logical_to_physical_u32(window.width, scale_factor))
-}
-
-fn configured_window_physical_height(
-    app: &tauri::AppHandle,
-    label: &str,
-    scale_factor: f64,
-) -> Option<u32> {
-    app.config()
-        .app
-        .windows
-        .iter()
-        .find(|window| window.label.as_str() == label)
-        .map(|window| logical_to_physical_u32(window.height, scale_factor))
-}
-
-fn recorder_window_physical_width(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
-    app.get_webview_window("recorder")
-        .and_then(|window| window.outer_size().ok())
-        .map(|size| size.width)
-        .or_else(|| configured_window_physical_width(app, "recorder", scale_factor))
-}
-
-fn recorder_window_physical_height(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
-    app.get_webview_window("recorder")
-        .and_then(|window| window.outer_size().ok())
-        .map(|size| size.height)
-        .or_else(|| configured_window_physical_height(app, "recorder", scale_factor))
-}
-
 fn position_recorder_window(
     app: &tauri::AppHandle,
     mode: FloatingRecorderMode,
@@ -841,7 +801,7 @@ fn apply_floating_chrome_windows(
 
     let language_visible = language_window_visible_for_floating_chrome(expanded);
     if language_visible {
-        position_language_window(app, language_menu_open)?;
+        position_language_window(app, language_menu_open, recorder_mode)?;
         if let Some(window) = app.get_webview_window("language") {
             window.show()?;
         }
@@ -852,15 +812,29 @@ fn apply_floating_chrome_windows(
     Ok(())
 }
 
-fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result<()> {
+fn position_language_window(
+    app: &tauri::AppHandle,
+    open: bool,
+    recorder_mode: FloatingRecorderMode,
+) -> tauri::Result<()> {
     let Some(window) = app.get_webview_window("language") else {
         return Ok(());
     };
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
+    let recorder_window = app.get_webview_window("recorder");
+    let recorder_monitor = recorder_window.as_ref().and_then(|window| {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten())
+    });
+    let monitor = recorder_monitor.or_else(|| {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten())
+    });
     let Some(monitor) = monitor else {
         return Ok(());
     };
@@ -882,12 +856,10 @@ fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result
     let physical_toggle_bar_height =
         logical_to_physical_i32(LANGUAGE_TOGGLE_BAR_HEIGHT, scale_factor);
     let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
-    let Some(recorder_width) = recorder_window_physical_width(app, scale_factor) else {
-        return Ok(());
-    };
-    let Some(recorder_height) = recorder_window_physical_height(app, scale_factor) else {
-        return Ok(());
-    };
+    let (recorder_logical_width, recorder_logical_height) =
+        recorder_window_size_for_mode(recorder_mode);
+    let recorder_width = logical_to_physical_u32(recorder_logical_width, scale_factor);
+    let recorder_height = logical_to_physical_u32(recorder_logical_height, scale_factor);
     let recorder_x = centered_window_left(monitor_position.x, monitor_size.width, recorder_width);
     let x = recorder_x - physical_gap - physical_width;
     let y = language_window_top_for_aligned_toggle_bar(
@@ -1158,6 +1130,36 @@ mod tests {
         assert!(production_source
             .contains("apply_floating_chrome_windows(app.handle(), false, false)?"));
         assert!(production_source.contains("window.hide()?;"));
+    }
+
+    #[test]
+    fn language_window_position_uses_intended_recorder_mode_not_stale_outer_size() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let apply_windows = production_source
+            .split("fn apply_floating_chrome_windows(")
+            .nth(1)
+            .and_then(|source| source.split("\nfn position_language_window").next())
+            .expect("floating chrome window application function");
+        let position_language = production_source
+            .split("fn position_language_window(")
+            .nth(1)
+            .and_then(|source| source.split("\n#[cfg(test)]").next())
+            .expect("language window positioning function");
+
+        assert!(apply_windows
+            .contains("position_language_window(app, language_menu_open, recorder_mode)?"));
+        assert!(production_source.contains(
+            "fn position_language_window(\n    app: &tauri::AppHandle,\n    open: bool,\n    recorder_mode: FloatingRecorderMode,\n)"
+        ));
+        assert!(position_language.contains("recorder_window_size_for_mode(recorder_mode)"));
+        assert!(!position_language.contains("recorder_window_physical_width"));
+        assert!(!position_language.contains("recorder_window_physical_height"));
+        assert!(!position_language.contains("outer_size()"));
     }
 
     #[test]
@@ -1467,6 +1469,36 @@ mod tests {
         assert!(floating_recorder_styles.contains("box-shadow: none;"));
         assert!(floating_recorder_styles.contains("transition:"));
         assert!(!floating_recorder_styles.contains("box-shadow: 0"));
+    }
+
+    #[test]
+    fn recorder_styles_avoid_size_transition_jank_and_keep_rounded_clip() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles =
+            fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
+
+        let recorder_surface_styles = styles
+            .split(".recorder-surface {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recorder surface styles exist");
+        let floating_recorder_styles = styles
+            .split(".floating-recorder {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("floating recorder styles exist");
+        let transition = floating_recorder_styles
+            .split("transition:")
+            .nth(1)
+            .and_then(|styles| styles.split(';').next())
+            .expect("floating recorder transition exists");
+
+        assert!(!transition.contains("width"));
+        assert!(!transition.contains("height"));
+        assert!(transition.contains("opacity"));
+        assert!(transition.contains("transform"));
+        assert!(recorder_surface_styles.contains("overflow: hidden;"));
+        assert!(recorder_surface_styles.contains("border-radius: 999px;"));
     }
 
     #[test]

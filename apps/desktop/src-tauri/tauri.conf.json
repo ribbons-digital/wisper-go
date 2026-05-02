@@ -24,8 +24,8 @@
         "label": "recorder",
         "title": "Wispergo Recorder",
         "url": "/?surface=recorder",
-        "width": 320,
-        "height": 62,
+        "width": 96,
+        "height": 10,
         "decorations": false,
         "alwaysOnTop": true,
         "transparent": true,
@@ -54,7 +54,7 @@
         "skipTaskbar": true,
         "focus": false,
         "focusable": true,
-        "visible": true,
+        "visible": false,
         "visibleOnAllWorkspaces": true,
         "acceptFirstMouse": true
       }

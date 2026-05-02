@@ -8,6 +8,8 @@ mod state;
 #[allow(dead_code)]
 mod trigger;
 
+use std::sync::Mutex;
+
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
     accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
@@ -27,8 +29,29 @@ fn app_health() -> &'static str {
 }
 
 #[tauri::command]
-fn set_language_menu_open(app: tauri::AppHandle, open: bool) -> Result<(), String> {
-    position_language_window(&app, open).map_err(|err| err.to_string())
+fn set_language_menu_open(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FloatingChromeState>,
+    open: bool,
+) -> Result<(), String> {
+    set_floating_chrome_reason_active(
+        &app,
+        state.inner(),
+        FloatingChromeReason::LanguageMenu,
+        open,
+    )
+    .map(|_| ())
+}
+
+#[tauri::command]
+fn set_floating_chrome_reason(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FloatingChromeState>,
+    reason: String,
+    active: bool,
+) -> Result<bool, String> {
+    let reason = parse_floating_chrome_reason(&reason)?;
+    set_floating_chrome_reason_active(&app, state.inner(), reason, active)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +59,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(CleanupRuntimeManager::default())
+        .manage(FloatingChromeState::default())
         .setup(move |app| {
             if let Err(err) = load_persisted_settings(app.handle(), app.state::<AppState>().inner())
             {
@@ -48,8 +72,7 @@ pub fn run() {
             );
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
-            let _ = position_recorder_window(app.handle(), FloatingRecorderMode::Collapsed);
-            position_language_window(app.handle(), false)?;
+            apply_floating_chrome_windows(app.handle(), false, false)?;
             configure_language_window_for_hover_tracking(app.handle());
             install_language_inactive_hover_monitor(app.handle());
             if recorder_window_ignores_cursor_events() {
@@ -87,7 +110,8 @@ pub fn run() {
             set_local_model_settings,
             recognition_language,
             set_recognition_language,
-            set_language_menu_open
+            set_language_menu_open,
+            set_floating_chrome_reason
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -417,6 +441,11 @@ struct FloatingChromeReasonState {
     post_insert: bool,
 }
 
+#[derive(Default)]
+struct FloatingChromeState {
+    reasons: Mutex<FloatingChromeReasonState>,
+}
+
 impl FloatingChromeReasonState {
     fn set(&mut self, reason: FloatingChromeReason, active: bool) {
         match reason {
@@ -437,6 +466,47 @@ fn floating_chrome_expanded(state: &FloatingChromeReasonState) -> bool {
         || state.recording
         || state.processing
         || state.post_insert
+}
+
+fn parse_floating_chrome_reason(reason: &str) -> Result<FloatingChromeReason, String> {
+    match reason {
+        "language_hover" => Ok(FloatingChromeReason::LanguageHover),
+        "language_menu" => Ok(FloatingChromeReason::LanguageMenu),
+        "recording" => Ok(FloatingChromeReason::Recording),
+        "processing" => Ok(FloatingChromeReason::Processing),
+        "post_insert" => Ok(FloatingChromeReason::PostInsert),
+        _ => Err("unknown floating chrome reason".to_string()),
+    }
+}
+
+fn floating_chrome_window_state(state: &FloatingChromeReasonState) -> (bool, bool) {
+    (floating_chrome_expanded(state), state.language_menu)
+}
+
+fn set_floating_chrome_reason_active(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    active: bool,
+) -> Result<bool, String> {
+    let (expanded, language_menu_open) = {
+        let mut reasons = state
+            .reasons
+            .lock()
+            .map_err(|_| "floating chrome state unavailable".to_string())?;
+        reasons.set(reason, active);
+        floating_chrome_window_state(&reasons)
+    };
+
+    apply_floating_chrome_windows(app, expanded, language_menu_open)
+        .map_err(|err| err.to_string())?;
+    app.emit("wispergo://floating-chrome-expanded-changed", expanded)
+        .map_err(|err| err.to_string())?;
+    Ok(expanded)
+}
+
+fn language_window_visible_for_floating_chrome(expanded: bool) -> bool {
+    expanded
 }
 
 fn recorder_window_size_for_mode(mode: FloatingRecorderMode) -> (f64, f64) {
@@ -561,6 +631,31 @@ fn position_recorder_window(
     Ok(())
 }
 
+fn apply_floating_chrome_windows(
+    app: &tauri::AppHandle,
+    expanded: bool,
+    language_menu_open: bool,
+) -> tauri::Result<()> {
+    let recorder_mode = if expanded {
+        FloatingRecorderMode::Expanded
+    } else {
+        FloatingRecorderMode::Collapsed
+    };
+    position_recorder_window(app, recorder_mode)?;
+
+    let language_visible = language_window_visible_for_floating_chrome(expanded);
+    if language_visible {
+        position_language_window(app, language_menu_open)?;
+        if let Some(window) = app.get_webview_window("language") {
+            window.show()?;
+        }
+    } else if let Some(window) = app.get_webview_window("language") {
+        window.hide()?;
+    }
+
+    Ok(())
+}
+
 fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result<()> {
     let Some(window) = app.get_webview_window("language") else {
         return Ok(());
@@ -622,10 +717,12 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        floating_chrome_expanded, language_window_top_for_aligned_toggle_bar,
-        recorder_window_ignores_cursor_events, recorder_window_size_for_mode,
-        recorder_window_top_for_bottom_margin, should_hide_window_on_close, FloatingChromeReason,
-        FloatingChromeReasonState, FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
+        floating_chrome_expanded, floating_chrome_window_state,
+        language_window_top_for_aligned_toggle_bar, language_window_visible_for_floating_chrome,
+        parse_floating_chrome_reason, recorder_window_ignores_cursor_events,
+        recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
+        should_hide_window_on_close, FloatingChromeReason, FloatingChromeReasonState,
+        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
     };
 
     #[test]
@@ -728,7 +825,46 @@ mod tests {
     }
 
     #[test]
-    fn app_registers_recognition_language_and_ollama_setup_commands() {
+    fn floating_chrome_window_state_preserves_language_menu_open_reason() {
+        let mut state = FloatingChromeReasonState::default();
+        state.set(FloatingChromeReason::LanguageMenu, true);
+        state.set(FloatingChromeReason::Processing, true);
+
+        assert_eq!(floating_chrome_window_state(&state), (true, true));
+
+        state.set(FloatingChromeReason::LanguageMenu, false);
+        assert_eq!(floating_chrome_window_state(&state), (true, false));
+    }
+
+    #[test]
+    fn floating_chrome_reason_parser_accepts_frontend_reasons() {
+        assert_eq!(
+            parse_floating_chrome_reason("language_hover"),
+            Ok(FloatingChromeReason::LanguageHover)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("language_menu"),
+            Ok(FloatingChromeReason::LanguageMenu)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("recording"),
+            Ok(FloatingChromeReason::Recording)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("processing"),
+            Ok(FloatingChromeReason::Processing)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("post_insert"),
+            Ok(FloatingChromeReason::PostInsert)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("<script>unexpected</script>"),
+            Err("unknown floating chrome reason".to_string())
+        );
+    }
+
+    fn registered_tauri_commands() -> Vec<String> {
         let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
             .expect("lib source");
         let production_source = source
@@ -741,16 +877,67 @@ mod tests {
             .and_then(|source| source.split("])").next())
             .expect("tauri generate_handler block");
 
-        let registered_commands: Vec<&str> = generate_handler_block
+        generate_handler_block
             .lines()
-            .map(|line| line.trim().trim_end_matches(','))
+            .map(|line| line.trim().trim_end_matches(',').to_string())
             .filter(|line| !line.is_empty())
-            .collect();
+            .collect()
+    }
 
-        assert!(registered_commands.contains(&"recognition_language"));
-        assert!(registered_commands.contains(&"set_recognition_language"));
-        assert!(registered_commands.contains(&"set_language_menu_open"));
-        assert!(registered_commands.contains(&"ensure_ollama_setup"));
+    #[test]
+    fn app_registers_recognition_language_and_ollama_setup_commands() {
+        let registered_commands = registered_tauri_commands();
+
+        assert!(registered_commands.contains(&"recognition_language".to_string()));
+        assert!(registered_commands.contains(&"set_recognition_language".to_string()));
+        assert!(registered_commands.contains(&"set_language_menu_open".to_string()));
+        assert!(registered_commands.contains(&"ensure_ollama_setup".to_string()));
+    }
+
+    #[test]
+    fn floating_chrome_command_is_registered() {
+        let registered_commands = registered_tauri_commands();
+
+        assert!(registered_commands.contains(&"set_floating_chrome_reason".to_string()));
+    }
+
+    #[test]
+    fn floating_windows_start_collapsed_in_tauri_config() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("tauri config");
+        let config: Value = serde_json::from_str(&config).expect("valid tauri config json");
+        let windows = config["app"]["windows"].as_array().expect("windows array");
+        let recorder = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("recorder"))
+            .expect("recorder window configured");
+        let language = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("language"))
+            .expect("language window configured");
+
+        assert_eq!(recorder["width"].as_u64(), Some(96));
+        assert_eq!(recorder["height"].as_u64(), Some(10));
+        assert_eq!(recorder["visible"].as_bool(), Some(true));
+        assert_eq!(language["visible"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn native_floating_chrome_hides_language_when_collapsed() {
+        assert!(!language_window_visible_for_floating_chrome(false));
+        assert!(language_window_visible_for_floating_chrome(true));
+
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source
+            .contains("apply_floating_chrome_windows(app.handle(), false, false)?"));
+        assert!(production_source.contains("window.hide()?;"));
     }
 
     #[test]

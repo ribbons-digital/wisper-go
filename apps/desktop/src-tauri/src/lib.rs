@@ -514,6 +514,7 @@ const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
 const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
 const LANGUAGE_TOGGLE_BAR_HEIGHT: f64 = 40.0;
 const HOVER_COLLAPSE_GRACE_MS: u64 = 200;
+const FLOATING_COLLAPSE_APPLY_DELAY_MS: u64 = 80;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FloatingRecorderMode {
@@ -634,11 +635,18 @@ fn hover_clear_generation_matches(
 }
 
 fn current_floating_chrome_expanded(state: &FloatingChromeState) -> Result<bool, String> {
+    let (expanded, _) = current_floating_chrome_window_state(state)?;
+    Ok(expanded)
+}
+
+fn current_floating_chrome_window_state(
+    state: &FloatingChromeState,
+) -> Result<(bool, bool), String> {
     let reasons = state
         .reasons
         .lock()
         .map_err(|_| "floating chrome state unavailable".to_string())?;
-    Ok(floating_chrome_expanded(&reasons))
+    Ok(floating_chrome_window_state(&reasons))
 }
 
 fn set_floating_chrome_reason_active(
@@ -685,20 +693,53 @@ fn set_floating_chrome_reason_active_immediate(
     reason: FloatingChromeReason,
     active: bool,
 ) -> Result<bool, String> {
-    let (expanded, language_menu_open) = {
+    let (previous_expanded, expanded, language_menu_open) = {
         let mut reasons = state
             .reasons
             .lock()
             .map_err(|_| "floating chrome state unavailable".to_string())?;
+        let previous_expanded = floating_chrome_expanded(&reasons);
         reasons.set(reason, active);
-        floating_chrome_window_state(&reasons)
+        let (expanded, language_menu_open) = floating_chrome_window_state(&reasons);
+        (previous_expanded, expanded, language_menu_open)
     };
 
-    apply_floating_chrome_windows(app, expanded, language_menu_open)
-        .map_err(|err| err.to_string())?;
+    if expanded {
+        apply_floating_chrome_windows(app, expanded, language_menu_open)
+            .map_err(|err| err.to_string())?;
+        app.emit("wispergo://floating-chrome-expanded-changed", expanded)
+            .map_err(|err| err.to_string())?;
+        return Ok(expanded);
+    }
+
     app.emit("wispergo://floating-chrome-expanded-changed", expanded)
         .map_err(|err| err.to_string())?;
+    if previous_expanded {
+        apply_floating_chrome_windows_after_collapse_delay(app);
+    } else {
+        apply_floating_chrome_windows(app, expanded, language_menu_open)
+            .map_err(|err| err.to_string())?;
+    }
     Ok(expanded)
+}
+
+fn apply_floating_chrome_windows_after_collapse_delay(app: &tauri::AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(
+            FLOATING_COLLAPSE_APPLY_DELAY_MS,
+        ));
+        let state = app.state::<FloatingChromeState>();
+        let Ok((expanded, language_menu_open)) =
+            current_floating_chrome_window_state(state.inner())
+        else {
+            return;
+        };
+        if expanded {
+            return;
+        }
+        let _ = apply_floating_chrome_windows(&app, expanded, language_menu_open);
+    });
 }
 
 fn language_window_visible_for_floating_chrome(expanded: bool) -> bool {
@@ -890,7 +931,8 @@ mod tests {
         parse_floating_chrome_reason, recorder_window_ignores_cursor_events,
         recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
         should_hide_window_on_close, FloatingChromeReason, FloatingChromeReasonState,
-        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN, HOVER_COLLAPSE_GRACE_MS,
+        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN, FLOATING_COLLAPSE_APPLY_DELAY_MS,
+        HOVER_COLLAPSE_GRACE_MS,
     };
 
     #[test]
@@ -1078,19 +1120,66 @@ mod tests {
             .next()
             .expect("production lib source before tests");
         let floating_chrome_update = production_source
-            .split("fn set_floating_chrome_reason_active(")
+            .split("fn set_floating_chrome_reason_active_immediate(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn apply_floating_chrome_windows_after_collapse_delay")
+                    .next()
+            })
+            .expect("floating chrome native state update function");
+
+        assert!(floating_chrome_update
+            .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
+        assert!(floating_chrome_update.contains("if expanded"));
+        assert!(floating_chrome_update
+            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+    }
+
+    #[test]
+    fn native_floating_chrome_delays_collapsed_geometry_until_after_event() {
+        assert_eq!(FLOATING_COLLAPSE_APPLY_DELAY_MS, 80);
+
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let floating_chrome_update = production_source
+            .split("fn set_floating_chrome_reason_active_immediate(")
             .nth(1)
             .and_then(|source| {
                 source
                     .split("\nfn language_window_visible_for_floating_chrome")
                     .next()
             })
-            .expect("floating chrome native state update function");
+            .expect("floating chrome native state update source");
+        let collapse_delay = production_source
+            .split("fn apply_floating_chrome_windows_after_collapse_delay(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn language_window_visible_for_floating_chrome")
+                    .next()
+            })
+            .expect("delayed collapse geometry helper");
 
-        assert!(floating_chrome_update
-            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
-        assert!(floating_chrome_update
-            .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
+        let emit_index = floating_chrome_update
+            .find("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)")
+            .expect("expanded change event is emitted");
+        let delayed_apply_index = floating_chrome_update
+            .find("apply_floating_chrome_windows_after_collapse_delay(app)")
+            .expect("collapsed geometry is delayed");
+        assert!(emit_index < delayed_apply_index);
+        assert!(production_source.contains("const FLOATING_COLLAPSE_APPLY_DELAY_MS: u64 = 80;"));
+        assert!(collapse_delay.contains("Duration::from_millis("));
+        assert!(collapse_delay.contains("FLOATING_COLLAPSE_APPLY_DELAY_MS"));
+        assert!(collapse_delay.contains("current_floating_chrome_window_state"));
+        assert!(collapse_delay.contains("if expanded {"));
+        assert!(collapse_delay.contains("return;"));
+        assert!(collapse_delay
+            .contains("apply_floating_chrome_windows(&app, expanded, language_menu_open)"));
     }
 
     #[test]
@@ -1461,6 +1550,7 @@ mod tests {
         assert!(recorder_surface_styles.contains("padding: 0;"));
         assert!(collapsed_recorder_styles.contains("width: 96px;"));
         assert!(collapsed_recorder_styles.contains("height: 10px;"));
+        assert!(collapsed_recorder_styles.contains("align-self: end;"));
         assert!(expanded_recorder_styles.contains("height: 48px;"));
         assert!(expanded_recorder_styles.contains("border-radius: 24px;"));
         assert!(styles.contains("html[data-surface=\"recorder\"] .app-shell"));
@@ -1529,6 +1619,28 @@ mod tests {
         assert!(ensure_script.contains("extendedKeyUsage=codeSigning"));
         assert!(trust_script.contains("security add-trusted-cert"));
         assert!(trust_script.contains("/Library/Keychains/System.keychain"));
+    }
+
+    #[test]
+    fn macos_bundle_layout_check_requires_current_arch_inference_assets() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root_dir = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .expect("repo root");
+        let script =
+            fs::read_to_string(root_dir.join("scripts/check-macos-bundle-inference-layout.sh"))
+                .expect("bundle inference layout check script");
+
+        assert!(script.contains("uname -m"));
+        assert!(script.contains("arm64") && script.contains("macos-aarch64"));
+        assert!(script.contains("x86_64") && script.contains("macos-x86_64"));
+        assert!(script.contains("bin/$current_arch/whisper-cli"));
+        assert!(script.contains("bin/$current_arch/llama-server"));
+        assert!(script.contains("models/asr/ggml-large-v3-turbo.bin"));
+        assert!(script.contains("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"));
+        assert!(script.contains("[[ ! -f \"$RESOURCE_DIR/$relative\" ]]"));
     }
 
     #[test]

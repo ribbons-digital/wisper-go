@@ -22,6 +22,7 @@ import {
   setRecognitionLanguage,
   startRecording,
   stopRecording,
+  type FloatingChromeReason,
 } from "../lib/tauriApi";
 import type {
   AccessibilityStatus,
@@ -149,7 +150,7 @@ export function App() {
       }
       if (postInsertGraceActiveRef.current) {
         postInsertGraceActiveRef.current = false;
-        void setFloatingChromeReason("post_insert", false).catch(() => undefined);
+        void updateFloatingChromeReason("post_insert", false).catch(() => undefined);
       }
     };
   }, []);
@@ -177,7 +178,7 @@ export function App() {
       return;
     }
 
-    void setFloatingChromeReason("recording", status === "recording").catch((err: unknown) => {
+    void updateFloatingChromeReason("recording", status === "recording").catch((err: unknown) => {
       setError(errorMessage(err));
     });
   }, [isRecorderSurface, status]);
@@ -187,7 +188,7 @@ export function App() {
       return;
     }
 
-    void setFloatingChromeReason("processing", pending).catch((err: unknown) => {
+    void updateFloatingChromeReason("processing", pending).catch((err: unknown) => {
       setError(errorMessage(err));
     });
   }, [isRecorderSurface, pending]);
@@ -396,6 +397,13 @@ export function App() {
     setPending(nextPending);
   }
 
+  function updateFloatingChromeReason(reason: FloatingChromeReason, active: boolean) {
+    return setFloatingChromeReason(reason, active).then((expanded) => {
+      setFloatingChromeExpanded(expanded);
+      return expanded;
+    });
+  }
+
   function refreshMicrophones() {
     return listMicrophones()
       .then((devices) => {
@@ -503,13 +511,13 @@ export function App() {
     }
 
     postInsertGraceActiveRef.current = true;
-    void setFloatingChromeReason("post_insert", true).catch((err: unknown) => {
+    void updateFloatingChromeReason("post_insert", true).catch((err: unknown) => {
       setError(errorMessage(err));
     });
     postInsertTimerRef.current = window.setTimeout(() => {
       postInsertTimerRef.current = null;
       postInsertGraceActiveRef.current = false;
-      void setFloatingChromeReason("post_insert", false).catch((err: unknown) => {
+      void updateFloatingChromeReason("post_insert", false).catch((err: unknown) => {
         setError(errorMessage(err));
       });
     }, POST_INSERT_EXPANDED_MS);
@@ -622,7 +630,7 @@ export function App() {
           onMenuOpenChange={updateLanguageMenuOpen}
           onNativeHoverEnd={() => {
             setLanguageNativeHovered(false);
-            void setFloatingChromeReason("language_hover", false).catch((err: unknown) => {
+            void updateFloatingChromeReason("language_hover", false).catch((err: unknown) => {
               setError(errorMessage(err));
             });
           }}

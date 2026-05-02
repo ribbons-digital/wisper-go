@@ -76,6 +76,7 @@ select {
 }
 
 .floating-recorder.is-collapsed {
+  align-self: end;
   width: 96px;
   height: 10px;
   grid-template-columns: 1fr;

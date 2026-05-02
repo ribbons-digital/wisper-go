@@ -105,7 +105,7 @@ describe("App", () => {
     vi.mocked(requestMicrophoneAccess).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(selectedMicrophoneId).mockResolvedValue("default");
     vi.mocked(setLanguageMenuOpen).mockResolvedValue(undefined);
-    vi.mocked(setFloatingChromeReason).mockResolvedValue(false);
+    mockFloatingChromeReasonState();
     vi.mocked(setMicrophoneDevice).mockResolvedValue(undefined);
     vi.mocked(setLocalModelSettings).mockImplementation((settings) => Promise.resolve(settings));
     vi.mocked(setRecognitionLanguage).mockImplementation(async (language) => language);
@@ -216,6 +216,38 @@ describe("App", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(setFloatingChromeReason).toHaveBeenCalledWith("post_insert", false);
+  });
+
+  it("updates floating recorder expansion from command responses when the native event is missed", async () => {
+    vi.mocked(setFloatingChromeReason).mockImplementation(async (reason, active) => {
+      if (reason === "post_insert" && !active) {
+        return false;
+      }
+      return true;
+    });
+    window.history.pushState({}, "", "/?surface=recorder");
+
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+    await emitRecordShortcut("Pressed");
+    expect(await screen.findByText("Recording")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    await act(async () => {
+      eventListeners.get("wispergo://record-shortcut")?.({ payload: "Released" });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+      await Promise.resolve();
+    });
+
+    expect(setFloatingChromeReason).toHaveBeenCalledWith("post_insert", false);
+    expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
   it("lets settings change the selected microphone", async () => {
@@ -676,6 +708,14 @@ async function emitLanguageHover(payload: boolean) {
   });
   await act(async () => {
     eventListeners.get("wispergo://language-hover-changed")?.({ payload });
+  });
+}
+
+function mockFloatingChromeReasonState() {
+  const reasons = new Map<string, boolean>();
+  vi.mocked(setFloatingChromeReason).mockImplementation(async (reason, active) => {
+    reasons.set(reason, active);
+    return Array.from(reasons.values()).some(Boolean);
   });
 }
 

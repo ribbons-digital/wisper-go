@@ -3,24 +3,34 @@ import { describe, expect, it } from "vitest";
 import { FloatingRecorder } from "./FloatingRecorder";
 
 describe("FloatingRecorder", () => {
-  it("renders a keyboard-only shortcut prompt while idle", () => {
-    render(<FloatingRecorder status="idle" />);
+  it("renders only the minimized handle while collapsed", () => {
+    render(<FloatingRecorder status="idle" expanded={false} />);
+
+    expect(screen.getByRole("region", { name: "Recorder" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+    expect(screen.queryByText("hold Command + Shift + Space")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("renders a keyboard-only shortcut prompt while expanded and idle", () => {
+    render(<FloatingRecorder status="idle" expanded />);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Ready");
     expect(screen.getByText("hold Command + Shift + Space")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders a concise recording prompt without controls", () => {
-    render(<FloatingRecorder status="recording" />);
+  it("renders a concise recording prompt without controls while expanded", () => {
+    render(<FloatingRecorder status="recording" expanded />);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Recording");
     expect(screen.getByText("release to insert")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders processing without exposing controls", () => {
-    render(<FloatingRecorder status="idle" busy />);
+  it("renders processing without exposing controls while expanded", () => {
+    render(<FloatingRecorder status="idle" busy expanded />);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Processing");
     expect(screen.queryByRole("button")).not.toBeInTheDocument();

@@ -16,11 +16,13 @@ import {
   requestAccessibility,
   selectedMicrophoneId,
   setLanguageMenuOpen,
+  setFloatingChromeReason,
   setMicrophoneDevice,
   setLocalModelSettings,
   setRecognitionLanguage,
   startRecording,
   stopRecording,
+  type FloatingChromeReason,
 } from "../lib/tauriApi";
 import type {
   AccessibilityStatus,
@@ -37,6 +39,7 @@ type PermissionRequest = "microphone" | "accessibility";
 const MICROPHONE_REFRESH_MS = 2000;
 const ACCESSIBILITY_REFRESH_MS = 2000;
 const CLEANUP_RUNTIME_REFRESH_MS = 2000;
+const POST_INSERT_EXPANDED_MS = 1500;
 const RECOGNITION_LANGUAGES = [
   { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
@@ -70,6 +73,7 @@ export function App() {
   const [cleanupRuntime, setCleanupRuntime] = useState<CleanupRuntimeStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
+  const [floatingChromeExpanded, setFloatingChromeExpanded] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState<PermissionRequest | null>(null);
@@ -80,6 +84,8 @@ export function App() {
   const microphoneRef = useRef<MicrophoneStatus>(initialMicrophoneStatus);
   const microphoneDowngradeGraceUntilRef = useRef(0);
   const languageMenuOpenRef = useRef(false);
+  const postInsertTimerRef = useRef<number | null>(null);
+  const postInsertGraceActiveRef = useRef(false);
   const holdDownRef = useRef(false);
   const queuedStopAfterStartRef = useRef(false);
 
@@ -135,6 +141,57 @@ export function App() {
   useEffect(() => {
     languageMenuOpenRef.current = languageMenuOpen;
   }, [languageMenuOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (postInsertTimerRef.current !== null) {
+        window.clearTimeout(postInsertTimerRef.current);
+        postInsertTimerRef.current = null;
+      }
+      if (postInsertGraceActiveRef.current) {
+        postInsertGraceActiveRef.current = false;
+        void updateFloatingChromeReason("post_insert", false).catch(() => undefined);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isRecorderSurface && !isLanguageSurface) {
+      return;
+    }
+
+    let mounted = true;
+    const unlisten = listen<boolean>("wispergo://floating-chrome-expanded-changed", (event) => {
+      if (mounted) {
+        setFloatingChromeExpanded(event.payload);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, [isRecorderSurface, isLanguageSurface]);
+
+  useEffect(() => {
+    if (!isRecorderSurface) {
+      return;
+    }
+
+    void updateFloatingChromeReason("recording", status === "recording").catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }, [isRecorderSurface, status]);
+
+  useEffect(() => {
+    if (!isRecorderSurface) {
+      return;
+    }
+
+    void updateFloatingChromeReason("processing", pending).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }, [isRecorderSurface, pending]);
 
   useEffect(() => {
     let mounted = true;
@@ -340,6 +397,13 @@ export function App() {
     setPending(nextPending);
   }
 
+  function updateFloatingChromeReason(reason: FloatingChromeReason, active: boolean) {
+    return setFloatingChromeReason(reason, active).then((expanded) => {
+      setFloatingChromeExpanded(expanded);
+      return expanded;
+    });
+  }
+
   function refreshMicrophones() {
     return listMicrophones()
       .then((devices) => {
@@ -438,6 +502,27 @@ export function App() {
     stopActiveRecording("global_shortcut");
   }
 
+  function startPostInsertExpandedGrace() {
+    if (!isRecorderSurface) {
+      return;
+    }
+    if (postInsertTimerRef.current !== null) {
+      window.clearTimeout(postInsertTimerRef.current);
+    }
+
+    postInsertGraceActiveRef.current = true;
+    void updateFloatingChromeReason("post_insert", true).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+    postInsertTimerRef.current = window.setTimeout(() => {
+      postInsertTimerRef.current = null;
+      postInsertGraceActiveRef.current = false;
+      void updateFloatingChromeReason("post_insert", false).catch((err: unknown) => {
+        setError(errorMessage(err));
+      });
+    }, POST_INSERT_EXPANDED_MS);
+  }
+
   function stopActiveRecording(reason: string) {
     if (statusRef.current !== "recording") {
       return;
@@ -449,7 +534,7 @@ export function App() {
       (result) => {
         setLastInsert(insertSummary(result));
       },
-      { errorStatus: "idle" },
+      { errorStatus: "idle", onSettled: startPostInsertExpandedGrace },
     );
   }
 
@@ -460,6 +545,7 @@ export function App() {
     options: {
       errorStatus?: RecordingStatus;
       onSettledSuccess?: () => void;
+      onSettled?: () => void;
     } = {},
   ) {
     const currentOperation = operationId.current + 1;
@@ -474,6 +560,7 @@ export function App() {
           applyPending(false);
           onSuccess?.(result);
           options.onSettledSuccess?.();
+          options.onSettled?.();
         }
       })
       .catch((err: unknown) => {
@@ -483,6 +570,7 @@ export function App() {
           }
           setError(errorMessage(err));
           applyPending(false);
+          options.onSettled?.();
         }
       });
   }
@@ -515,18 +603,20 @@ export function App() {
     });
   }
 
+  const recorderSurfaceStateClass = floatingChromeExpanded
+    ? "is-floating-expanded"
+    : "is-floating-collapsed";
+  const shellClassName = isRecorderSurface
+    ? ["app-shell", "recorder-surface", recorderSurfaceStateClass].join(" ")
+    : isLanguageSurface
+      ? "app-shell language-surface"
+      : "app-shell";
+  const showStatusMessages = !isRecorderSurface && !isLanguageSurface;
+
   return (
-    <main
-      className={
-        isRecorderSurface
-          ? "app-shell recorder-surface"
-          : isLanguageSurface
-            ? "app-shell language-surface"
-            : "app-shell"
-      }
-    >
+    <main className={shellClassName}>
       {isRecorderSurface ? (
-        <FloatingRecorder status={status} busy={pending} />
+        <FloatingRecorder status={status} busy={pending} expanded={floatingChromeExpanded} />
       ) : null}
       {isLanguageSurface ? (
         <LanguageToggle
@@ -540,15 +630,20 @@ export function App() {
             updateLanguageMenuOpen(false);
           }}
           onMenuOpenChange={updateLanguageMenuOpen}
-          onNativeHoverEnd={() => setLanguageNativeHovered(false)}
+          onNativeHoverEnd={() => {
+            setLanguageNativeHovered(false);
+            void updateFloatingChromeReason("language_hover", false).catch((err: unknown) => {
+              setError(errorMessage(err));
+            });
+          }}
         />
       ) : null}
-      {lastInsert ? (
+      {showStatusMessages && lastInsert ? (
         <p className="insert-status" role="status">
           {lastInsert}
         </p>
       ) : null}
-      {error ? (
+      {showStatusMessages && error ? (
         <p className="command-error" role="status">
           {error}
         </p>

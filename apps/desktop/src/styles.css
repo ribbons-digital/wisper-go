@@ -49,10 +49,11 @@ select {
   width: 100vw;
   min-height: 100vh;
   margin: 0;
-  padding: 7px 8px;
+  padding: 0;
   align-content: center;
   justify-content: center;
   overflow: hidden;
+  border-radius: 999px;
 }
 
 .settings-panel {
@@ -64,17 +65,39 @@ select {
 
 .floating-recorder {
   display: inline-grid;
-  grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 10px;
-  width: 304px;
   max-width: 100%;
-  height: 48px;
-  padding: 7px 14px;
-  border-radius: 24px;
   background: #05070a;
   color: #ffffff;
   box-shadow: none;
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
+}
+
+.floating-recorder.is-collapsed {
+  align-self: end;
+  width: 96px;
+  height: 10px;
+  grid-template-columns: 1fr;
+  padding: 0;
+  border-radius: 999px;
+}
+
+.floating-recorder.is-expanded {
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  width: 304px;
+  height: 48px;
+  padding: 7px 14px;
+  border-radius: 24px;
+}
+
+.recorder-idle-handle {
+  width: 96px;
+  height: 10px;
+  border-radius: 999px;
+  background: #05070a;
 }
 
 .recording-dot {
@@ -215,6 +238,9 @@ button:disabled {
   justify-items: end;
   gap: 6px;
   color: #ffffff;
+  transition:
+    opacity 160ms ease,
+    transform 180ms ease;
 }
 
 .language-toggle-bar {
@@ -311,7 +337,7 @@ button:disabled {
     width: 100%;
   }
 
-  .floating-recorder {
+  .floating-recorder.is-expanded {
     min-width: 0;
     width: calc(100vw - 16px);
   }
@@ -324,13 +350,26 @@ button:disabled {
 html[data-surface="recorder"] .app-shell {
   width: 100vw;
   min-height: 100vh;
-  padding: 7px 8px;
+  padding: 0;
   align-content: center;
 }
 
-html[data-surface="recorder"] .floating-recorder {
+html[data-surface="recorder"] .recorder-surface.is-floating-expanded {
+  align-content: center;
+}
+
+html[data-surface="recorder"] .recorder-surface.is-floating-collapsed {
+  align-content: end;
+}
+
+html[data-surface="recorder"] .floating-recorder.is-expanded {
   width: 304px;
   height: 48px;
+}
+
+html[data-surface="recorder"] .floating-recorder.is-collapsed {
+  width: 96px;
+  height: 10px;
 }
 
 html[data-surface="language"] .app-shell {

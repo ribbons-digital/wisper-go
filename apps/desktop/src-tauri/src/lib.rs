@@ -8,6 +8,8 @@ mod state;
 #[allow(dead_code)]
 mod trigger;
 
+use std::sync::Mutex;
+
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
     accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
@@ -27,8 +29,29 @@ fn app_health() -> &'static str {
 }
 
 #[tauri::command]
-fn set_language_menu_open(app: tauri::AppHandle, open: bool) -> Result<(), String> {
-    position_language_window(&app, open).map_err(|err| err.to_string())
+fn set_language_menu_open(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FloatingChromeState>,
+    open: bool,
+) -> Result<(), String> {
+    set_floating_chrome_reason_active(
+        &app,
+        state.inner(),
+        FloatingChromeReason::LanguageMenu,
+        open,
+    )
+    .map(|_| ())
+}
+
+#[tauri::command]
+fn set_floating_chrome_reason(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, FloatingChromeState>,
+    reason: String,
+    active: bool,
+) -> Result<bool, String> {
+    let reason = parse_floating_chrome_reason(&reason)?;
+    set_floating_chrome_reason_active(&app, state.inner(), reason, active)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -36,6 +59,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(CleanupRuntimeManager::default())
+        .manage(FloatingChromeState::default())
         .setup(move |app| {
             if let Err(err) = load_persisted_settings(app.handle(), app.state::<AppState>().inner())
             {
@@ -48,9 +72,10 @@ pub fn run() {
             );
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
-            position_recorder_window(app.handle());
-            position_language_window(app.handle(), false)?;
+            apply_floating_chrome_windows(app.handle(), false, false)?;
+            configure_recorder_window_for_hover_tracking(app.handle());
             configure_language_window_for_hover_tracking(app.handle());
+            install_recorder_inactive_hover_monitor(app.handle());
             install_language_inactive_hover_monitor(app.handle());
             if recorder_window_ignores_cursor_events() {
                 if let Some(window) = app.get_webview_window("recorder") {
@@ -87,7 +112,8 @@ pub fn run() {
             set_local_model_settings,
             recognition_language,
             set_recognition_language,
-            set_language_menu_open
+            set_language_menu_open,
+            set_floating_chrome_reason
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -178,6 +204,13 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn configure_recorder_window_for_hover_tracking(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("recorder") else {
+        return;
+    };
+    enable_mouse_moved_events(&window);
+}
+
 fn configure_language_window_for_hover_tracking(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("language") else {
         return;
@@ -253,7 +286,8 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
     let ns_window = ns_window as usize;
     let handler = RcBlock::new(move |_event: *mut c_void| {
         let ns_window = ns_window as *mut c_void;
-        let inside = unsafe { cursor_is_inside_window(ns_window, &language_window) };
+        let inside = language_window.is_visible().unwrap_or(false)
+            && unsafe { cursor_is_inside_window(ns_window, &language_window) };
         let was_inside = hover_inside.swap(inside, Ordering::SeqCst);
         if was_inside == inside {
             return;
@@ -262,6 +296,13 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
         if inside {
             unsafe { activate_language_window_on_hover(ns_window) };
         }
+        let state = app.state::<FloatingChromeState>();
+        let _ = set_floating_chrome_reason_active(
+            &app,
+            state.inner(),
+            FloatingChromeReason::LanguageHover,
+            inside,
+        );
         let _ = app.emit("wispergo://language-hover-changed", inside);
     });
 
@@ -292,10 +333,98 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
 fn install_language_inactive_hover_monitor(_app: &tauri::AppHandle) {}
 
 #[cfg(target_os = "macos")]
-unsafe fn cursor_is_inside_window(
+fn install_recorder_inactive_hover_monitor(app: &tauri::AppHandle) {
+    use std::ffi::{c_char, c_void};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    use block2::RcBlock;
+
+    const NS_MOUSE_MOVED_MASK: usize = 1 << 5;
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_add_global_monitor(
+            receiver: *mut c_void,
+            selector: *mut c_void,
+            mask: usize,
+            handler: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    let Some(window) = app.get_webview_window("recorder") else {
+        return;
+    };
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+
+    let app = app.clone();
+    let recorder_window = window.clone();
+    let hover_inside = Arc::new(AtomicBool::new(false));
+    let ns_window = ns_window as usize;
+    let handler = RcBlock::new(move |_event: *mut c_void| {
+        let ns_window = ns_window as *mut c_void;
+        let state = app.state::<FloatingChromeState>();
+        let recorder_mode = if current_floating_chrome_expanded(state.inner()).unwrap_or(false) {
+            FloatingRecorderMode::Expanded
+        } else {
+            FloatingRecorderMode::Collapsed
+        };
+        let inside =
+            unsafe { cursor_is_inside_recorder_window(ns_window, &recorder_window, recorder_mode) };
+        let was_inside = hover_inside.swap(inside, Ordering::SeqCst);
+        if was_inside == inside {
+            return;
+        }
+
+        let _ = set_floating_chrome_reason_active(
+            &app,
+            state.inner(),
+            FloatingChromeReason::RecorderHover,
+            inside,
+        );
+        let _ = app.emit("wispergo://recorder-hover-changed", inside);
+    });
+
+    // The monitor is app-lifetime. Leak our retain so the block remains valid even if AppKit
+    // does not synchronously copy it before this setup function returns.
+    let handler = RcBlock::into_raw(handler);
+
+    unsafe {
+        let event_class = objc_getClass(b"NSEvent\0".as_ptr().cast());
+        let selector = sel_registerName(
+            b"addGlobalMonitorForEventsMatchingMask:handler:\0"
+                .as_ptr()
+                .cast(),
+        );
+        if event_class.is_null() || selector.is_null() {
+            return;
+        }
+        let _monitor = objc_msg_send_add_global_monitor(
+            event_class,
+            selector,
+            NS_MOUSE_MOVED_MASK,
+            handler.cast(),
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_recorder_inactive_hover_monitor(_app: &tauri::AppHandle) {}
+
+#[cfg(target_os = "macos")]
+unsafe fn cursor_position_and_window_size(
     ns_window: *mut std::ffi::c_void,
-    language_window: &tauri::WebviewWindow,
-) -> bool {
+    window: &tauri::WebviewWindow,
+) -> Option<(f64, f64, f64, f64)> {
     use std::ffi::{c_char, c_void};
 
     #[link(name = "objc")]
@@ -311,18 +440,31 @@ unsafe fn cursor_is_inside_window(
     let mouse_location_selector =
         unsafe { sel_registerName(b"mouseLocationOutsideOfEventStream\0".as_ptr().cast()) };
     if mouse_location_selector.is_null() {
-        return false;
+        return None;
     }
 
     let mouse = unsafe { objc_msg_send_mouse_location(ns_window, mouse_location_selector) };
-    let Ok(size) = language_window.outer_size() else {
-        return false;
+    let Ok(size) = window.outer_size() else {
+        return None;
     };
-    let scale_factor = language_window.scale_factor().unwrap_or(1.0).max(1.0);
+    let scale_factor = window.scale_factor().unwrap_or(1.0).max(1.0);
     let width = size.width as f64 / scale_factor;
     let height = size.height as f64 / scale_factor;
 
-    mouse.x >= 0.0 && mouse.x <= width && mouse.y >= 0.0 && mouse.y <= height
+    Some((mouse.x, mouse.y, width, height))
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cursor_is_inside_window(
+    ns_window: *mut std::ffi::c_void,
+    window: &tauri::WebviewWindow,
+) -> bool {
+    let Some((x, y, width, height)) =
+        (unsafe { cursor_position_and_window_size(ns_window, window) })
+    else {
+        return false;
+    };
+    x >= 0.0 && x <= width && y >= 0.0 && y <= height
 }
 
 #[cfg(target_os = "macos")]
@@ -379,13 +521,269 @@ unsafe fn activate_language_window_on_hover(ns_window: *mut std::ffi::c_void) {
     }
 }
 
-const FLOATING_BOTTOM_MARGIN: f64 = 88.0;
+const FLOATING_BOTTOM_MARGIN: f64 = 40.0;
 const FLOATING_GAP: f64 = 8.0;
+const RECORDER_COLLAPSED_WIDTH: f64 = 96.0;
+const RECORDER_COLLAPSED_HEIGHT: f64 = 10.0;
+const RECORDER_EXPANDED_WIDTH: f64 = 304.0;
+const RECORDER_EXPANDED_HEIGHT: f64 = 48.0;
 const LANGUAGE_CLOSED_WIDTH: f64 = 74.0;
 const LANGUAGE_CLOSED_HEIGHT: f64 = 52.0;
 const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
 const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
 const LANGUAGE_TOGGLE_BAR_HEIGHT: f64 = 40.0;
+const HOVER_COLLAPSE_GRACE_MS: u64 = 200;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FloatingRecorderMode {
+    Collapsed,
+    Expanded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FloatingChromeReason {
+    RecorderHover,
+    LanguageHover,
+    LanguageMenu,
+    Recording,
+    Processing,
+    PostInsert,
+}
+
+#[derive(Default)]
+struct FloatingChromeReasonState {
+    recorder_hover: bool,
+    language_hover: bool,
+    language_menu: bool,
+    recording: bool,
+    processing: bool,
+    post_insert: bool,
+}
+
+#[derive(Default)]
+struct HoverClearGeneration {
+    recorder_hover: u64,
+    language_hover: u64,
+}
+
+#[derive(Default)]
+struct FloatingChromeState {
+    reasons: Mutex<FloatingChromeReasonState>,
+    hover_clear_generation: Mutex<HoverClearGeneration>,
+}
+
+impl FloatingChromeReasonState {
+    fn set(&mut self, reason: FloatingChromeReason, active: bool) {
+        match reason {
+            FloatingChromeReason::RecorderHover => self.recorder_hover = active,
+            FloatingChromeReason::LanguageHover => self.language_hover = active,
+            FloatingChromeReason::LanguageMenu => self.language_menu = active,
+            FloatingChromeReason::Recording => self.recording = active,
+            FloatingChromeReason::Processing => self.processing = active,
+            FloatingChromeReason::PostInsert => self.post_insert = active,
+        }
+    }
+}
+
+fn floating_chrome_expanded(state: &FloatingChromeReasonState) -> bool {
+    state.recorder_hover
+        || state.language_hover
+        || state.language_menu
+        || state.recording
+        || state.processing
+        || state.post_insert
+}
+
+fn parse_floating_chrome_reason(reason: &str) -> Result<FloatingChromeReason, String> {
+    match reason {
+        "language_hover" => Ok(FloatingChromeReason::LanguageHover),
+        "language_menu" => Ok(FloatingChromeReason::LanguageMenu),
+        "recording" => Ok(FloatingChromeReason::Recording),
+        "processing" => Ok(FloatingChromeReason::Processing),
+        "post_insert" => Ok(FloatingChromeReason::PostInsert),
+        _ => Err("unknown floating chrome reason".to_string()),
+    }
+}
+
+fn floating_chrome_window_state(state: &FloatingChromeReasonState) -> (bool, bool) {
+    (floating_chrome_expanded(state), state.language_menu)
+}
+
+fn is_hover_reason(reason: FloatingChromeReason) -> bool {
+    matches!(
+        reason,
+        FloatingChromeReason::RecorderHover | FloatingChromeReason::LanguageHover
+    )
+}
+
+fn bump_hover_clear_generation(
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+) -> Result<Option<u64>, String> {
+    let mut generation = state
+        .hover_clear_generation
+        .lock()
+        .map_err(|_| "floating chrome hover state unavailable".to_string())?;
+    match reason {
+        FloatingChromeReason::RecorderHover => {
+            generation.recorder_hover = generation.recorder_hover.wrapping_add(1);
+            Ok(Some(generation.recorder_hover))
+        }
+        FloatingChromeReason::LanguageHover => {
+            generation.language_hover = generation.language_hover.wrapping_add(1);
+            Ok(Some(generation.language_hover))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn hover_clear_generation_matches(
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    expected: u64,
+) -> bool {
+    let Ok(generation) = state.hover_clear_generation.lock() else {
+        return false;
+    };
+    match reason {
+        FloatingChromeReason::RecorderHover => generation.recorder_hover == expected,
+        FloatingChromeReason::LanguageHover => generation.language_hover == expected,
+        _ => false,
+    }
+}
+
+fn current_floating_chrome_expanded(state: &FloatingChromeState) -> Result<bool, String> {
+    let (expanded, _) = current_floating_chrome_window_state(state)?;
+    Ok(expanded)
+}
+
+fn current_floating_chrome_window_state(
+    state: &FloatingChromeState,
+) -> Result<(bool, bool), String> {
+    let reasons = state
+        .reasons
+        .lock()
+        .map_err(|_| "floating chrome state unavailable".to_string())?;
+    Ok(floating_chrome_window_state(&reasons))
+}
+
+fn set_floating_chrome_reason_active(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    active: bool,
+) -> Result<bool, String> {
+    if is_hover_reason(reason) {
+        if active {
+            let _ = bump_hover_clear_generation(state, reason)?;
+        } else {
+            return set_floating_chrome_hover_reason_inactive_after_grace(app, state, reason);
+        }
+    }
+
+    set_floating_chrome_reason_active_immediate(app, state, reason, active)
+}
+
+fn set_floating_chrome_hover_reason_inactive_after_grace(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+) -> Result<bool, String> {
+    let Some(generation) = bump_hover_clear_generation(state, reason)? else {
+        return set_floating_chrome_reason_active_immediate(app, state, reason, false);
+    };
+    let expanded = current_floating_chrome_expanded(state)?;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(HOVER_COLLAPSE_GRACE_MS));
+        let state = app.state::<FloatingChromeState>();
+        if !hover_clear_generation_matches(state.inner(), reason, generation) {
+            return;
+        }
+        let _ = set_floating_chrome_reason_active_immediate(&app, state.inner(), reason, false);
+    });
+    Ok(expanded)
+}
+
+fn set_floating_chrome_reason_active_immediate(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    active: bool,
+) -> Result<bool, String> {
+    let (expanded, language_menu_open) = {
+        let mut reasons = state
+            .reasons
+            .lock()
+            .map_err(|_| "floating chrome state unavailable".to_string())?;
+        reasons.set(reason, active);
+        floating_chrome_window_state(&reasons)
+    };
+
+    apply_floating_chrome_windows(app, expanded, language_menu_open)
+        .map_err(|err| err.to_string())?;
+    app.emit("wispergo://floating-chrome-expanded-changed", expanded)
+        .map_err(|err| err.to_string())?;
+    Ok(expanded)
+}
+
+fn language_window_visible_for_floating_chrome(expanded: bool) -> bool {
+    expanded
+}
+
+fn recorder_window_size_for_mode(mode: FloatingRecorderMode) -> (f64, f64) {
+    match mode {
+        FloatingRecorderMode::Collapsed => (RECORDER_COLLAPSED_WIDTH, RECORDER_COLLAPSED_HEIGHT),
+        FloatingRecorderMode::Expanded => (RECORDER_EXPANDED_WIDTH, RECORDER_EXPANDED_HEIGHT),
+    }
+}
+
+fn recorder_native_window_size_for_mode(_mode: FloatingRecorderMode) -> (f64, f64) {
+    (RECORDER_EXPANDED_WIDTH, RECORDER_EXPANDED_HEIGHT)
+}
+
+fn cursor_is_inside_recorder_visible_area(
+    x: f64,
+    y: f64,
+    window_width: f64,
+    window_height: f64,
+    mode: FloatingRecorderMode,
+) -> bool {
+    match mode {
+        FloatingRecorderMode::Collapsed => {
+            let (handle_width, handle_height) = recorder_window_size_for_mode(mode);
+            let left = (window_width - handle_width) / 2.0;
+            let right = left + handle_width;
+            x >= left && x <= right && y >= 0.0 && y <= handle_height
+        }
+        FloatingRecorderMode::Expanded => {
+            x >= 0.0 && x <= window_width && y >= 0.0 && y <= window_height
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cursor_is_inside_recorder_window(
+    ns_window: *mut std::ffi::c_void,
+    window: &tauri::WebviewWindow,
+    mode: FloatingRecorderMode,
+) -> bool {
+    let Some((x, y, width, height)) =
+        (unsafe { cursor_position_and_window_size(ns_window, window) })
+    else {
+        return false;
+    };
+    cursor_is_inside_recorder_visible_area(x, y, width, height, mode)
+}
+
+fn recorder_window_top_for_bottom_margin(
+    monitor_top: i32,
+    monitor_height: u32,
+    window_height: i32,
+    bottom_margin: i32,
+) -> i32 {
+    monitor_top + monitor_height as i32 - window_height - bottom_margin
+}
 
 fn logical_to_physical_i32(logical: f64, scale_factor: f64) -> i32 {
     (logical * scale_factor).round() as i32
@@ -412,75 +810,11 @@ fn language_window_top_for_aligned_toggle_bar(
     (recorder_center_y - language_height as f64 + toggle_bar_height as f64 / 2.0).round() as i32
 }
 
-fn configured_window_physical_width(
+fn position_recorder_window(
     app: &tauri::AppHandle,
-    label: &str,
-    scale_factor: f64,
-) -> Option<u32> {
-    app.config()
-        .app
-        .windows
-        .iter()
-        .find(|window| window.label.as_str() == label)
-        .map(|window| logical_to_physical_u32(window.width, scale_factor))
-}
-
-fn configured_window_physical_height(
-    app: &tauri::AppHandle,
-    label: &str,
-    scale_factor: f64,
-) -> Option<u32> {
-    app.config()
-        .app
-        .windows
-        .iter()
-        .find(|window| window.label.as_str() == label)
-        .map(|window| logical_to_physical_u32(window.height, scale_factor))
-}
-
-fn recorder_window_physical_width(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
-    app.get_webview_window("recorder")
-        .and_then(|window| window.outer_size().ok())
-        .map(|size| size.width)
-        .or_else(|| configured_window_physical_width(app, "recorder", scale_factor))
-}
-
-fn recorder_window_physical_height(app: &tauri::AppHandle, scale_factor: f64) -> Option<u32> {
-    app.get_webview_window("recorder")
-        .and_then(|window| window.outer_size().ok())
-        .map(|size| size.height)
-        .or_else(|| configured_window_physical_height(app, "recorder", scale_factor))
-}
-
-fn position_recorder_window(app: &tauri::AppHandle) {
+    mode: FloatingRecorderMode,
+) -> tauri::Result<()> {
     let Some(window) = app.get_webview_window("recorder") else {
-        return;
-    };
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-    let Some(monitor) = monitor else {
-        return;
-    };
-    let Ok(window_size) = window.outer_size() else {
-        return;
-    };
-
-    let monitor_position = monitor.position();
-    let monitor_size = monitor.size();
-    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, monitor.scale_factor());
-    let x = centered_window_left(monitor_position.x, monitor_size.width, window_size.width);
-    let y =
-        monitor_position.y + monitor_size.height as i32 - window_size.height as i32 - bottom_margin;
-    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
-        x, y,
-    )));
-}
-
-fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result<()> {
-    let Some(window) = app.get_webview_window("language") else {
         return Ok(());
     };
     let monitor = window
@@ -488,6 +822,83 @@ fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result
         .ok()
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return Ok(());
+    };
+
+    let (logical_width, logical_height) = recorder_native_window_size_for_mode(mode);
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        logical_width,
+        logical_height,
+    )))?;
+
+    let monitor_position = monitor.position();
+    let monitor_size = monitor.size();
+    let scale_factor = monitor.scale_factor();
+    let physical_width = logical_to_physical_u32(logical_width, scale_factor);
+    let physical_height = logical_to_physical_i32(logical_height, scale_factor);
+    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
+    let x = centered_window_left(monitor_position.x, monitor_size.width, physical_width);
+    let y = recorder_window_top_for_bottom_margin(
+        monitor_position.y,
+        monitor_size.height,
+        physical_height,
+        bottom_margin,
+    );
+    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+        x, y,
+    )))?;
+    Ok(())
+}
+
+fn apply_floating_chrome_windows(
+    app: &tauri::AppHandle,
+    expanded: bool,
+    language_menu_open: bool,
+) -> tauri::Result<()> {
+    let recorder_mode = if expanded {
+        FloatingRecorderMode::Expanded
+    } else {
+        FloatingRecorderMode::Collapsed
+    };
+    position_recorder_window(app, recorder_mode)?;
+
+    let language_visible = language_window_visible_for_floating_chrome(expanded);
+    if language_visible {
+        position_language_window(app, language_menu_open, recorder_mode)?;
+        if let Some(window) = app.get_webview_window("language") {
+            window.show()?;
+        }
+    } else if let Some(window) = app.get_webview_window("language") {
+        window.hide()?;
+    }
+
+    Ok(())
+}
+
+fn position_language_window(
+    app: &tauri::AppHandle,
+    open: bool,
+    recorder_mode: FloatingRecorderMode,
+) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window("language") else {
+        return Ok(());
+    };
+    let recorder_window = app.get_webview_window("recorder");
+    let recorder_monitor = recorder_window.as_ref().and_then(|window| {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten())
+    });
+    let monitor = recorder_monitor.or_else(|| {
+        window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .or_else(|| window.primary_monitor().ok().flatten())
+    });
     let Some(monitor) = monitor else {
         return Ok(());
     };
@@ -509,12 +920,10 @@ fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result
     let physical_toggle_bar_height =
         logical_to_physical_i32(LANGUAGE_TOGGLE_BAR_HEIGHT, scale_factor);
     let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
-    let Some(recorder_width) = recorder_window_physical_width(app, scale_factor) else {
-        return Ok(());
-    };
-    let Some(recorder_height) = recorder_window_physical_height(app, scale_factor) else {
-        return Ok(());
-    };
+    let (recorder_logical_width, recorder_logical_height) =
+        recorder_window_size_for_mode(recorder_mode);
+    let recorder_width = logical_to_physical_u32(recorder_logical_width, scale_factor);
+    let recorder_height = logical_to_physical_u32(recorder_logical_height, scale_factor);
     let recorder_x = centered_window_left(monitor_position.x, monitor_size.width, recorder_width);
     let x = recorder_x - physical_gap - physical_width;
     let y = language_window_top_for_aligned_toggle_bar(
@@ -540,8 +949,13 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        language_window_top_for_aligned_toggle_bar, recorder_window_ignores_cursor_events,
-        should_hide_window_on_close,
+        cursor_is_inside_recorder_visible_area, floating_chrome_expanded,
+        floating_chrome_window_state, language_window_top_for_aligned_toggle_bar,
+        language_window_visible_for_floating_chrome, parse_floating_chrome_reason,
+        recorder_native_window_size_for_mode, recorder_window_ignores_cursor_events,
+        recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
+        should_hide_window_on_close, FloatingChromeReason, FloatingChromeReasonState,
+        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN, HOVER_COLLAPSE_GRACE_MS,
     };
 
     #[test]
@@ -559,8 +973,9 @@ mod tests {
     fn language_window_top_aligns_toggle_bar_center_with_recorder_center() {
         let monitor_top = 0;
         let monitor_height = 900;
-        let bottom_margin = 88;
-        let recorder_height = 62;
+        let bottom_margin = FLOATING_BOTTOM_MARGIN as i32;
+        let (_, recorder_height) = recorder_window_size_for_mode(FloatingRecorderMode::Expanded);
+        let recorder_height = recorder_height as u32;
         let toggle_bar_height = 40;
         let monitor_bottom = monitor_top as f64 + monitor_height as f64;
         let recorder_center = monitor_bottom - bottom_margin as f64 - recorder_height as f64 / 2.0;
@@ -582,7 +997,107 @@ mod tests {
     }
 
     #[test]
-    fn app_registers_recognition_language_and_ollama_setup_commands() {
+    fn floating_bottom_margin_is_forty_logical_pixels() {
+        assert_eq!(FLOATING_BOTTOM_MARGIN, 40.0);
+    }
+
+    #[test]
+    fn recorder_window_size_switches_between_collapsed_handle_and_expanded_pill() {
+        assert_eq!(
+            recorder_window_size_for_mode(FloatingRecorderMode::Collapsed),
+            (96.0, 10.0)
+        );
+        assert_eq!(
+            recorder_window_size_for_mode(FloatingRecorderMode::Expanded),
+            (304.0, 48.0)
+        );
+    }
+
+    #[test]
+    fn recorder_window_top_uses_configured_bottom_margin() {
+        let monitor_top = 0;
+        let monitor_height = 900;
+        let collapsed_y = recorder_window_top_for_bottom_margin(
+            monitor_top,
+            monitor_height,
+            10,
+            FLOATING_BOTTOM_MARGIN as i32,
+        );
+        let expanded_y = recorder_window_top_for_bottom_margin(
+            monitor_top,
+            monitor_height,
+            48,
+            FLOATING_BOTTOM_MARGIN as i32,
+        );
+
+        assert_eq!(collapsed_y, 850);
+        assert_eq!(expanded_y, 812);
+    }
+
+    #[test]
+    fn floating_chrome_expands_when_any_reason_is_active() {
+        assert!(!floating_chrome_expanded(
+            &FloatingChromeReasonState::default()
+        ));
+
+        for reason in [
+            FloatingChromeReason::RecorderHover,
+            FloatingChromeReason::LanguageHover,
+            FloatingChromeReason::LanguageMenu,
+            FloatingChromeReason::Recording,
+            FloatingChromeReason::Processing,
+            FloatingChromeReason::PostInsert,
+        ] {
+            let mut state = FloatingChromeReasonState::default();
+            state.set(reason, true);
+            assert!(floating_chrome_expanded(&state));
+
+            state.set(reason, false);
+            assert!(!floating_chrome_expanded(&state));
+        }
+    }
+
+    #[test]
+    fn floating_chrome_window_state_preserves_language_menu_open_reason() {
+        let mut state = FloatingChromeReasonState::default();
+        state.set(FloatingChromeReason::LanguageMenu, true);
+        state.set(FloatingChromeReason::Processing, true);
+
+        assert_eq!(floating_chrome_window_state(&state), (true, true));
+
+        state.set(FloatingChromeReason::LanguageMenu, false);
+        assert_eq!(floating_chrome_window_state(&state), (true, false));
+    }
+
+    #[test]
+    fn floating_chrome_reason_parser_accepts_frontend_reasons() {
+        assert_eq!(
+            parse_floating_chrome_reason("language_hover"),
+            Ok(FloatingChromeReason::LanguageHover)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("language_menu"),
+            Ok(FloatingChromeReason::LanguageMenu)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("recording"),
+            Ok(FloatingChromeReason::Recording)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("processing"),
+            Ok(FloatingChromeReason::Processing)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("post_insert"),
+            Ok(FloatingChromeReason::PostInsert)
+        );
+        assert_eq!(
+            parse_floating_chrome_reason("<script>unexpected</script>"),
+            Err("unknown floating chrome reason".to_string())
+        );
+    }
+
+    fn registered_tauri_commands() -> Vec<String> {
         let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
             .expect("lib source");
         let production_source = source
@@ -595,16 +1110,192 @@ mod tests {
             .and_then(|source| source.split("])").next())
             .expect("tauri generate_handler block");
 
-        let registered_commands: Vec<&str> = generate_handler_block
+        generate_handler_block
             .lines()
-            .map(|line| line.trim().trim_end_matches(','))
+            .map(|line| line.trim().trim_end_matches(',').to_string())
             .filter(|line| !line.is_empty())
-            .collect();
+            .collect()
+    }
 
-        assert!(registered_commands.contains(&"recognition_language"));
-        assert!(registered_commands.contains(&"set_recognition_language"));
-        assert!(registered_commands.contains(&"set_language_menu_open"));
-        assert!(registered_commands.contains(&"ensure_ollama_setup"));
+    #[test]
+    fn app_registers_recognition_language_and_ollama_setup_commands() {
+        let registered_commands = registered_tauri_commands();
+
+        assert!(registered_commands.contains(&"recognition_language".to_string()));
+        assert!(registered_commands.contains(&"set_recognition_language".to_string()));
+        assert!(registered_commands.contains(&"set_language_menu_open".to_string()));
+        assert!(registered_commands.contains(&"ensure_ollama_setup".to_string()));
+    }
+
+    #[test]
+    fn floating_chrome_command_is_registered() {
+        let registered_commands = registered_tauri_commands();
+
+        assert!(registered_commands.contains(&"set_floating_chrome_reason".to_string()));
+    }
+
+    #[test]
+    fn native_floating_chrome_emits_expanded_changed_event() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let floating_chrome_update = production_source
+            .split("fn set_floating_chrome_reason_active_immediate(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn apply_floating_chrome_windows_after_collapse_delay")
+                    .next()
+            })
+            .expect("floating chrome native state update function");
+
+        assert!(floating_chrome_update
+            .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
+        assert!(floating_chrome_update.contains("if expanded"));
+        assert!(floating_chrome_update
+            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+    }
+
+    #[test]
+    fn native_floating_chrome_applies_stable_host_geometry_without_collapse_delay() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let floating_chrome_update = production_source
+            .split("fn set_floating_chrome_reason_active_immediate(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn language_window_visible_for_floating_chrome")
+                    .next()
+            })
+            .expect("floating chrome native state update source");
+
+        assert!(!production_source.contains("FLOATING_COLLAPSE_APPLY_DELAY_MS"));
+        assert!(!production_source.contains("apply_floating_chrome_windows_after_collapse_delay"));
+        assert!(floating_chrome_update
+            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+        assert!(floating_chrome_update
+            .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
+    }
+
+    #[test]
+    fn recorder_native_window_stays_expanded_sized_to_avoid_collapse_clipping() {
+        assert_eq!(
+            recorder_native_window_size_for_mode(FloatingRecorderMode::Collapsed),
+            (304.0, 48.0)
+        );
+        assert_eq!(
+            recorder_native_window_size_for_mode(FloatingRecorderMode::Expanded),
+            (304.0, 48.0)
+        );
+    }
+
+    #[test]
+    fn collapsed_recorder_hover_uses_visible_handle_not_full_host_window() {
+        assert!(cursor_is_inside_recorder_visible_area(
+            152.0,
+            5.0,
+            304.0,
+            48.0,
+            FloatingRecorderMode::Collapsed,
+        ));
+        assert!(!cursor_is_inside_recorder_visible_area(
+            152.0,
+            24.0,
+            304.0,
+            48.0,
+            FloatingRecorderMode::Collapsed,
+        ));
+        assert!(!cursor_is_inside_recorder_visible_area(
+            30.0,
+            5.0,
+            304.0,
+            48.0,
+            FloatingRecorderMode::Collapsed,
+        ));
+        assert!(cursor_is_inside_recorder_visible_area(
+            30.0,
+            24.0,
+            304.0,
+            48.0,
+            FloatingRecorderMode::Expanded,
+        ));
+    }
+
+    #[test]
+    fn floating_windows_start_collapsed_in_tauri_config() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("tauri config");
+        let config: Value = serde_json::from_str(&config).expect("valid tauri config json");
+        let windows = config["app"]["windows"].as_array().expect("windows array");
+        let recorder = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("recorder"))
+            .expect("recorder window configured");
+        let language = windows
+            .iter()
+            .find(|window| window["label"].as_str() == Some("language"))
+            .expect("language window configured");
+
+        assert_eq!(recorder["width"].as_u64(), Some(304));
+        assert_eq!(recorder["height"].as_u64(), Some(48));
+        assert_eq!(recorder["visible"].as_bool(), Some(true));
+        assert_eq!(language["visible"].as_bool(), Some(false));
+    }
+
+    #[test]
+    fn native_floating_chrome_hides_language_when_collapsed() {
+        assert!(!language_window_visible_for_floating_chrome(false));
+        assert!(language_window_visible_for_floating_chrome(true));
+
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source
+            .contains("apply_floating_chrome_windows(app.handle(), false, false)?"));
+        assert!(production_source.contains("window.hide()?;"));
+    }
+
+    #[test]
+    fn language_window_position_uses_intended_recorder_mode_not_stale_outer_size() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let apply_windows = production_source
+            .split("fn apply_floating_chrome_windows(")
+            .nth(1)
+            .and_then(|source| source.split("\nfn position_language_window").next())
+            .expect("floating chrome window application function");
+        let position_language = production_source
+            .split("fn position_language_window(")
+            .nth(1)
+            .and_then(|source| source.split("\n#[cfg(test)]").next())
+            .expect("language window positioning function");
+
+        assert!(apply_windows
+            .contains("position_language_window(app, language_menu_open, recorder_mode)?"));
+        assert!(production_source.contains(
+            "fn position_language_window(\n    app: &tauri::AppHandle,\n    open: bool,\n    recorder_mode: FloatingRecorderMode,\n)"
+        ));
+        assert!(position_language.contains("recorder_window_size_for_mode(recorder_mode)"));
+        assert!(!position_language.contains("recorder_window_physical_width"));
+        assert!(!position_language.contains("recorder_window_physical_height"));
+        assert!(!position_language.contains("outer_size()"));
     }
 
     #[test]
@@ -653,6 +1344,91 @@ mod tests {
         assert!(production_source.contains("activateIgnoringOtherApps:"));
         assert!(production_source.contains("wispergo://language-hover-changed"));
         assert!(!production_source.contains("objc_msg_send_frame"));
+    }
+
+    #[test]
+    fn language_hover_monitor_ignores_hidden_language_window() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let language_hover_monitor = production_source
+            .split("fn install_language_inactive_hover_monitor(")
+            .nth(1)
+            .and_then(|source| source.split("\n#[cfg(not(target_os = \"macos\"))]").next())
+            .expect("language inactive hover monitor source");
+
+        let visibility_check = language_hover_monitor
+            .find("language_window.is_visible().unwrap_or(false)")
+            .expect("language hover monitor checks window visibility");
+        let cursor_check = language_hover_monitor
+            .find("cursor_is_inside_window(ns_window, &language_window)")
+            .expect("language hover monitor checks cursor position");
+        let hover_state_update = language_hover_monitor
+            .find("FloatingChromeReason::LanguageHover")
+            .expect("language hover monitor updates language hover reason");
+
+        assert!(visibility_check < cursor_check);
+        assert!(visibility_check < hover_state_update);
+    }
+
+    #[test]
+    fn recorder_window_enables_macos_mouse_moved_events_for_hover_tracking() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source
+            .contains("configure_recorder_window_for_hover_tracking(app.handle())"));
+        assert!(production_source.contains("setAcceptsMouseMovedEvents:"));
+    }
+
+    #[test]
+    fn recorder_window_reports_hover_while_app_is_inactive() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source.contains("install_recorder_inactive_hover_monitor(app.handle())"));
+        assert!(production_source.contains("wispergo://recorder-hover-changed"));
+        assert!(production_source.contains("FloatingChromeReason::RecorderHover"));
+    }
+
+    #[test]
+    fn native_hover_collapse_waits_for_grace_before_clearing_reason() {
+        assert_eq!(HOVER_COLLAPSE_GRACE_MS, 200);
+
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let hover_update = production_source
+            .split("fn set_floating_chrome_reason_active(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn language_window_visible_for_floating_chrome")
+                    .next()
+            })
+            .expect("floating chrome hover update source");
+
+        assert!(production_source.contains("const HOVER_COLLAPSE_GRACE_MS: u64 = 200;"));
+        assert!(hover_update.contains("set_floating_chrome_hover_reason_inactive_after_grace"));
+        assert!(hover_update.contains("std::thread::sleep"));
+        assert!(hover_update.contains("Duration::from_millis(HOVER_COLLAPSE_GRACE_MS)"));
+        assert!(hover_update.contains("set_floating_chrome_reason_active_immediate"));
+        assert!(hover_update.contains("state.inner(), reason, false"));
+        assert!(hover_update.contains("hover_clear_generation_matches"));
     }
 
     #[test]
@@ -792,24 +1568,86 @@ mod tests {
     }
 
     #[test]
-    fn recorder_pill_has_transparent_padding_and_fixed_radius() {
+    fn recorder_styles_size_collapsed_handle_without_extra_surface_padding() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let styles =
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
-        assert!(styles.contains("padding: 7px 8px;"));
-        assert!(styles.contains("height: 48px;"));
+        let recorder_surface_styles = styles
+            .split(".recorder-surface {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recorder surface styles exist");
         let floating_recorder_styles = styles
             .split(".floating-recorder {")
             .nth(1)
             .and_then(|styles| styles.split('}').next())
             .expect("floating recorder styles exist");
+        let collapsed_recorder_styles = styles
+            .split(".floating-recorder.is-collapsed {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("collapsed recorder styles exist");
+        let expanded_recorder_styles = styles
+            .split(".floating-recorder.is-expanded {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("expanded recorder styles exist");
+        let collapsed_recorder_surface_styles = styles
+            .split("html[data-surface=\"recorder\"] .recorder-surface.is-floating-collapsed {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("collapsed recorder surface styles exist");
+        let expanded_recorder_surface_styles = styles
+            .split("html[data-surface=\"recorder\"] .recorder-surface.is-floating-expanded {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("expanded recorder surface styles exist");
 
-        assert!(styles.contains("border-radius: 24px;"));
+        assert!(recorder_surface_styles.contains("padding: 0;"));
+        assert!(collapsed_recorder_surface_styles.contains("align-content: end;"));
+        assert!(expanded_recorder_surface_styles.contains("align-content: center;"));
+        assert!(collapsed_recorder_styles.contains("width: 96px;"));
+        assert!(collapsed_recorder_styles.contains("height: 10px;"));
+        assert!(collapsed_recorder_styles.contains("align-self: end;"));
+        assert!(expanded_recorder_styles.contains("height: 48px;"));
+        assert!(expanded_recorder_styles.contains("border-radius: 24px;"));
         assert!(styles.contains("html[data-surface=\"recorder\"] .app-shell"));
-        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder"));
+        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder.is-collapsed"));
+        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder.is-expanded"));
         assert!(floating_recorder_styles.contains("box-shadow: none;"));
+        assert!(floating_recorder_styles.contains("transition:"));
         assert!(!floating_recorder_styles.contains("box-shadow: 0"));
+    }
+
+    #[test]
+    fn recorder_styles_avoid_size_transition_jank_and_keep_rounded_clip() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles =
+            fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
+
+        let recorder_surface_styles = styles
+            .split(".recorder-surface {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recorder surface styles exist");
+        let floating_recorder_styles = styles
+            .split(".floating-recorder {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("floating recorder styles exist");
+        let transition = floating_recorder_styles
+            .split("transition:")
+            .nth(1)
+            .and_then(|styles| styles.split(';').next())
+            .expect("floating recorder transition exists");
+
+        assert!(!transition.contains("width"));
+        assert!(!transition.contains("height"));
+        assert!(transition.contains("opacity"));
+        assert!(transition.contains("transform"));
+        assert!(recorder_surface_styles.contains("overflow: hidden;"));
+        assert!(recorder_surface_styles.contains("border-radius: 999px;"));
     }
 
     #[test]
@@ -840,6 +1678,28 @@ mod tests {
         assert!(ensure_script.contains("extendedKeyUsage=codeSigning"));
         assert!(trust_script.contains("security add-trusted-cert"));
         assert!(trust_script.contains("/Library/Keychains/System.keychain"));
+    }
+
+    #[test]
+    fn macos_bundle_layout_check_requires_current_arch_inference_assets() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let root_dir = manifest_dir
+            .parent()
+            .and_then(Path::parent)
+            .and_then(Path::parent)
+            .expect("repo root");
+        let script =
+            fs::read_to_string(root_dir.join("scripts/check-macos-bundle-inference-layout.sh"))
+                .expect("bundle inference layout check script");
+
+        assert!(script.contains("uname -m"));
+        assert!(script.contains("arm64") && script.contains("macos-aarch64"));
+        assert!(script.contains("x86_64") && script.contains("macos-x86_64"));
+        assert!(script.contains("bin/$current_arch/whisper-cli"));
+        assert!(script.contains("bin/$current_arch/llama-server"));
+        assert!(script.contains("models/asr/ggml-large-v3-turbo.bin"));
+        assert!(script.contains("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"));
+        assert!(script.contains("[[ ! -f \"$RESOURCE_DIR/$relative\" ]]"));
     }
 
     #[test]

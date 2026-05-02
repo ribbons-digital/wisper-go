@@ -73,7 +73,9 @@ pub fn run() {
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
             apply_floating_chrome_windows(app.handle(), false, false)?;
+            configure_recorder_window_for_hover_tracking(app.handle());
             configure_language_window_for_hover_tracking(app.handle());
+            install_recorder_inactive_hover_monitor(app.handle());
             install_language_inactive_hover_monitor(app.handle());
             if recorder_window_ignores_cursor_events() {
                 if let Some(window) = app.get_webview_window("recorder") {
@@ -202,6 +204,13 @@ fn show_settings(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn configure_recorder_window_for_hover_tracking(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("recorder") else {
+        return;
+    };
+    enable_mouse_moved_events(&window);
+}
+
 fn configure_language_window_for_hover_tracking(app: &tauri::AppHandle) {
     let Some(window) = app.get_webview_window("language") else {
         return;
@@ -286,6 +295,13 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
         if inside {
             unsafe { activate_language_window_on_hover(ns_window) };
         }
+        let state = app.state::<FloatingChromeState>();
+        let _ = set_floating_chrome_reason_active(
+            &app,
+            state.inner(),
+            FloatingChromeReason::LanguageHover,
+            inside,
+        );
         let _ = app.emit("wispergo://language-hover-changed", inside);
     });
 
@@ -316,9 +332,91 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
 fn install_language_inactive_hover_monitor(_app: &tauri::AppHandle) {}
 
 #[cfg(target_os = "macos")]
+fn install_recorder_inactive_hover_monitor(app: &tauri::AppHandle) {
+    use std::ffi::{c_char, c_void};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+
+    use block2::RcBlock;
+
+    const NS_MOUSE_MOVED_MASK: usize = 1 << 5;
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+
+        #[allow(clashing_extern_declarations)]
+        #[link_name = "objc_msgSend"]
+        fn objc_msg_send_add_global_monitor(
+            receiver: *mut c_void,
+            selector: *mut c_void,
+            mask: usize,
+            handler: *mut c_void,
+        ) -> *mut c_void;
+    }
+
+    let Some(window) = app.get_webview_window("recorder") else {
+        return;
+    };
+    let Ok(ns_window) = window.ns_window() else {
+        return;
+    };
+
+    let app = app.clone();
+    let recorder_window = window.clone();
+    let hover_inside = Arc::new(AtomicBool::new(false));
+    let ns_window = ns_window as usize;
+    let handler = RcBlock::new(move |_event: *mut c_void| {
+        let ns_window = ns_window as *mut c_void;
+        let inside = unsafe { cursor_is_inside_window(ns_window, &recorder_window) };
+        let was_inside = hover_inside.swap(inside, Ordering::SeqCst);
+        if was_inside == inside {
+            return;
+        }
+
+        let state = app.state::<FloatingChromeState>();
+        let _ = set_floating_chrome_reason_active(
+            &app,
+            state.inner(),
+            FloatingChromeReason::RecorderHover,
+            inside,
+        );
+        let _ = app.emit("wispergo://recorder-hover-changed", inside);
+    });
+
+    // The monitor is app-lifetime. Leak our retain so the block remains valid even if AppKit
+    // does not synchronously copy it before this setup function returns.
+    let handler = RcBlock::into_raw(handler);
+
+    unsafe {
+        let event_class = objc_getClass(b"NSEvent\0".as_ptr().cast());
+        let selector = sel_registerName(
+            b"addGlobalMonitorForEventsMatchingMask:handler:\0"
+                .as_ptr()
+                .cast(),
+        );
+        if event_class.is_null() || selector.is_null() {
+            return;
+        }
+        let _monitor = objc_msg_send_add_global_monitor(
+            event_class,
+            selector,
+            NS_MOUSE_MOVED_MASK,
+            handler.cast(),
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_recorder_inactive_hover_monitor(_app: &tauri::AppHandle) {}
+
+#[cfg(target_os = "macos")]
 unsafe fn cursor_is_inside_window(
     ns_window: *mut std::ffi::c_void,
-    language_window: &tauri::WebviewWindow,
+    window: &tauri::WebviewWindow,
 ) -> bool {
     use std::ffi::{c_char, c_void};
 
@@ -339,10 +437,10 @@ unsafe fn cursor_is_inside_window(
     }
 
     let mouse = unsafe { objc_msg_send_mouse_location(ns_window, mouse_location_selector) };
-    let Ok(size) = language_window.outer_size() else {
+    let Ok(size) = window.outer_size() else {
         return false;
     };
-    let scale_factor = language_window.scale_factor().unwrap_or(1.0).max(1.0);
+    let scale_factor = window.scale_factor().unwrap_or(1.0).max(1.0);
     let width = size.width as f64 / scale_factor;
     let height = size.height as f64 / scale_factor;
 
@@ -1010,6 +1108,34 @@ mod tests {
         assert!(production_source.contains("activateIgnoringOtherApps:"));
         assert!(production_source.contains("wispergo://language-hover-changed"));
         assert!(!production_source.contains("objc_msg_send_frame"));
+    }
+
+    #[test]
+    fn recorder_window_enables_macos_mouse_moved_events_for_hover_tracking() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source
+            .contains("configure_recorder_window_for_hover_tracking(app.handle())"));
+        assert!(production_source.contains("setAcceptsMouseMovedEvents:"));
+    }
+
+    #[test]
+    fn recorder_window_reports_hover_while_app_is_inactive() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+
+        assert!(production_source.contains("install_recorder_inactive_hover_monitor(app.handle())"));
+        assert!(production_source.contains("wispergo://recorder-hover-changed"));
+        assert!(production_source.contains("FloatingChromeReason::RecorderHover"));
     }
 
     #[test]

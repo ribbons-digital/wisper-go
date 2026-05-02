@@ -286,7 +286,8 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
     let ns_window = ns_window as usize;
     let handler = RcBlock::new(move |_event: *mut c_void| {
         let ns_window = ns_window as *mut c_void;
-        let inside = unsafe { cursor_is_inside_window(ns_window, &language_window) };
+        let inside = language_window.is_visible().unwrap_or(false)
+            && unsafe { cursor_is_inside_window(ns_window, &language_window) };
         let was_inside = hover_inside.swap(inside, Ordering::SeqCst);
         if was_inside == inside {
             return;
@@ -1108,6 +1109,34 @@ mod tests {
         assert!(production_source.contains("activateIgnoringOtherApps:"));
         assert!(production_source.contains("wispergo://language-hover-changed"));
         assert!(!production_source.contains("objc_msg_send_frame"));
+    }
+
+    #[test]
+    fn language_hover_monitor_ignores_hidden_language_window() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let language_hover_monitor = production_source
+            .split("fn install_language_inactive_hover_monitor(")
+            .nth(1)
+            .and_then(|source| source.split("\n#[cfg(not(target_os = \"macos\"))]").next())
+            .expect("language inactive hover monitor source");
+
+        let visibility_check = language_hover_monitor
+            .find("language_window.is_visible().unwrap_or(false)")
+            .expect("language hover monitor checks window visibility");
+        let cursor_check = language_hover_monitor
+            .find("cursor_is_inside_window(ns_window, &language_window)")
+            .expect("language hover monitor checks cursor position");
+        let hover_state_update = language_hover_monitor
+            .find("FloatingChromeReason::LanguageHover")
+            .expect("language hover monitor updates language hover reason");
+
+        assert!(visibility_check < cursor_check);
+        assert!(visibility_check < hover_state_update);
     }
 
     #[test]

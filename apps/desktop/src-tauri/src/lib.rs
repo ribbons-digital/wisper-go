@@ -902,6 +902,30 @@ mod tests {
     }
 
     #[test]
+    fn native_floating_chrome_emits_expanded_changed_event() {
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let floating_chrome_update = production_source
+            .split("fn set_floating_chrome_reason_active(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn language_window_visible_for_floating_chrome")
+                    .next()
+            })
+            .expect("floating chrome native state update function");
+
+        assert!(floating_chrome_update
+            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+        assert!(floating_chrome_update
+            .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
+    }
+
+    #[test]
     fn floating_windows_start_collapsed_in_tauri_config() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let config =

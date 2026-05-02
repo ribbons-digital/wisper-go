@@ -166,13 +166,24 @@ describe("App", () => {
 
     render(<App />);
 
+    expect(screen.getByRole("main")).toHaveClass("recorder-surface", "is-floating-collapsed");
+    expect(screen.getByRole("main")).not.toHaveClass("is-floating-expanded");
     expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
 
     await emitFloatingChromeExpanded(true);
 
+    expect(screen.getByRole("main")).toHaveClass("recorder-surface", "is-floating-expanded");
+    expect(screen.getByRole("main")).not.toHaveClass("is-floating-collapsed");
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(screen.queryByLabelText("Wispergo idle handle")).not.toBeInTheDocument();
+
+    await emitFloatingChromeExpanded(false);
+
+    expect(screen.getByRole("main")).toHaveClass("recorder-surface", "is-floating-collapsed");
+    expect(screen.getByRole("main")).not.toHaveClass("is-floating-expanded");
+    expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
   });
 
   it("ignores recorder hover exit while native floating chrome remains expanded", async () => {

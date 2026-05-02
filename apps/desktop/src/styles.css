@@ -354,6 +354,14 @@ html[data-surface="recorder"] .app-shell {
   align-content: center;
 }
 
+html[data-surface="recorder"] .recorder-surface.is-floating-expanded {
+  align-content: center;
+}
+
+html[data-surface="recorder"] .recorder-surface.is-floating-collapsed {
+  align-content: end;
+}
+
 html[data-surface="recorder"] .floating-recorder.is-expanded {
   width: 304px;
   height: 48px;

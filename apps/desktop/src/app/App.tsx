@@ -603,16 +603,17 @@ export function App() {
     });
   }
 
+  const recorderSurfaceStateClass = floatingChromeExpanded
+    ? "is-floating-expanded"
+    : "is-floating-collapsed";
+  const shellClassName = isRecorderSurface
+    ? ["app-shell", "recorder-surface", recorderSurfaceStateClass].join(" ")
+    : isLanguageSurface
+      ? "app-shell language-surface"
+      : "app-shell";
+
   return (
-    <main
-      className={
-        isRecorderSurface
-          ? "app-shell recorder-surface"
-          : isLanguageSurface
-            ? "app-shell language-surface"
-            : "app-shell"
-      }
-    >
+    <main className={shellClassName}>
       {isRecorderSurface ? (
         <FloatingRecorder status={status} busy={pending} expanded={floatingChromeExpanded} />
       ) : null}

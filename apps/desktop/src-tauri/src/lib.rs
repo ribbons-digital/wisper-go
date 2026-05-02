@@ -1546,8 +1546,20 @@ mod tests {
             .nth(1)
             .and_then(|styles| styles.split('}').next())
             .expect("expanded recorder styles exist");
+        let collapsed_recorder_surface_styles = styles
+            .split("html[data-surface=\"recorder\"] .recorder-surface.is-floating-collapsed {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("collapsed recorder surface styles exist");
+        let expanded_recorder_surface_styles = styles
+            .split("html[data-surface=\"recorder\"] .recorder-surface.is-floating-expanded {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("expanded recorder surface styles exist");
 
         assert!(recorder_surface_styles.contains("padding: 0;"));
+        assert!(collapsed_recorder_surface_styles.contains("align-content: end;"));
+        assert!(expanded_recorder_surface_styles.contains("align-content: center;"));
         assert!(collapsed_recorder_styles.contains("width: 96px;"));
         assert!(collapsed_recorder_styles.contains("height: 10px;"));
         assert!(collapsed_recorder_styles.contains("align-self: end;"));

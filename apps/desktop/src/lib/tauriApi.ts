@@ -89,3 +89,17 @@ export async function setRecognitionLanguage(
 export async function setLanguageMenuOpen(open: boolean): Promise<void> {
   await invoke("set_language_menu_open", { open });
 }
+
+export type FloatingChromeReason =
+  | "language_hover"
+  | "language_menu"
+  | "recording"
+  | "processing"
+  | "post_insert";
+
+export async function setFloatingChromeReason(
+  reason: FloatingChromeReason,
+  active: boolean,
+): Promise<boolean> {
+  return invoke<boolean>("set_floating_chrome_reason", { reason, active });
+}

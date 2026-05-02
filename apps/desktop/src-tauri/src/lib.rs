@@ -1304,23 +1304,42 @@ mod tests {
     }
 
     #[test]
-    fn recorder_pill_has_transparent_padding_and_fixed_radius() {
+    fn recorder_styles_size_collapsed_handle_without_extra_surface_padding() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
         let styles =
             fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
 
-        assert!(styles.contains("padding: 7px 8px;"));
-        assert!(styles.contains("height: 48px;"));
+        let recorder_surface_styles = styles
+            .split(".recorder-surface {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recorder surface styles exist");
         let floating_recorder_styles = styles
             .split(".floating-recorder {")
             .nth(1)
             .and_then(|styles| styles.split('}').next())
             .expect("floating recorder styles exist");
+        let collapsed_recorder_styles = styles
+            .split(".floating-recorder.is-collapsed {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("collapsed recorder styles exist");
+        let expanded_recorder_styles = styles
+            .split(".floating-recorder.is-expanded {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("expanded recorder styles exist");
 
-        assert!(styles.contains("border-radius: 24px;"));
+        assert!(recorder_surface_styles.contains("padding: 0;"));
+        assert!(collapsed_recorder_styles.contains("width: 96px;"));
+        assert!(collapsed_recorder_styles.contains("height: 10px;"));
+        assert!(expanded_recorder_styles.contains("height: 48px;"));
+        assert!(expanded_recorder_styles.contains("border-radius: 24px;"));
         assert!(styles.contains("html[data-surface=\"recorder\"] .app-shell"));
-        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder"));
+        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder.is-collapsed"));
+        assert!(styles.contains("html[data-surface=\"recorder\"] .floating-recorder.is-expanded"));
         assert!(floating_recorder_styles.contains("box-shadow: none;"));
+        assert!(floating_recorder_styles.contains("transition:"));
         assert!(!floating_recorder_styles.contains("box-shadow: 0"));
     }
 

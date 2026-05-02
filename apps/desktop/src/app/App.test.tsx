@@ -13,6 +13,7 @@ import {
   requestAccessibility,
   selectedMicrophoneId,
   setLanguageMenuOpen,
+  setFloatingChromeReason,
   setMicrophoneDevice,
   setLocalModelSettings,
   setRecognitionLanguage,
@@ -53,6 +54,7 @@ vi.mock("../lib/tauriApi", () => ({
   recordingStatus: vi.fn().mockResolvedValue("idle"),
   selectedMicrophoneId: vi.fn().mockResolvedValue("default"),
   setLanguageMenuOpen: vi.fn().mockResolvedValue(undefined),
+  setFloatingChromeReason: vi.fn().mockResolvedValue(false),
   setMicrophoneDevice: vi.fn().mockResolvedValue(undefined),
   setLocalModelSettings: vi.fn().mockImplementation((settings) => Promise.resolve(settings)),
   setRecognitionLanguage: vi.fn().mockResolvedValue("en"),
@@ -77,6 +79,7 @@ describe("App", () => {
     vi.mocked(requestMicrophoneAccess).mockReset();
     vi.mocked(selectedMicrophoneId).mockReset();
     vi.mocked(setLanguageMenuOpen).mockReset();
+    vi.mocked(setFloatingChromeReason).mockReset();
     vi.mocked(setMicrophoneDevice).mockReset();
     vi.mocked(setLocalModelSettings).mockReset();
     vi.mocked(setRecognitionLanguage).mockReset();
@@ -102,6 +105,7 @@ describe("App", () => {
     vi.mocked(requestMicrophoneAccess).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(selectedMicrophoneId).mockResolvedValue("default");
     vi.mocked(setLanguageMenuOpen).mockResolvedValue(undefined);
+    vi.mocked(setFloatingChromeReason).mockResolvedValue(false);
     vi.mocked(setMicrophoneDevice).mockResolvedValue(undefined);
     vi.mocked(setLocalModelSettings).mockImplementation((settings) => Promise.resolve(settings));
     vi.mocked(setRecognitionLanguage).mockImplementation(async (language) => language);
@@ -134,6 +138,7 @@ describe("App", () => {
   it("starts on shortcut press and stops on shortcut release", async () => {
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
+    await emitFloatingChromeExpanded(true);
 
     await emitRecordShortcut("Pressed");
     expect(startRecording).toHaveBeenCalledWith("press_and_hold");
@@ -145,14 +150,59 @@ describe("App", () => {
     expect(await screen.findByText("Inserted: hello from voice")).toBeInTheDocument();
   });
 
-  it("does not expose floating recorder mouse controls", () => {
+  it("does not expose floating recorder mouse controls", async () => {
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
+    await emitFloatingChromeExpanded(true);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent(
       "hold Command + Shift + Space",
     );
     expect(screen.queryByRole("button", { name: /dictation/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the recorder surface collapsed until native floating chrome expands", async () => {
+    window.history.pushState({}, "", "/?surface=recorder");
+
+    render(<App />);
+
+    expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
+    expect(screen.queryByText("Ready")).not.toBeInTheDocument();
+
+    await emitFloatingChromeExpanded(true);
+
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Wispergo idle handle")).not.toBeInTheDocument();
+  });
+
+  it("keeps recorder expanded briefly after insertion then clears post-insert reason", async () => {
+    window.history.pushState({}, "", "/?surface=recorder");
+
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+    await emitRecordShortcut("Pressed");
+    expect(await screen.findByText("Recording")).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    await act(async () => {
+      eventListeners.get("wispergo://record-shortcut")?.({ payload: "Released" });
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("Inserted: hello from voice")).toBeInTheDocument();
+    expect(setFloatingChromeReason).toHaveBeenCalledWith("post_insert", true);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1499);
+    });
+    expect(setFloatingChromeReason).not.toHaveBeenCalledWith("post_insert", false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(setFloatingChromeReason).toHaveBeenCalledWith("post_insert", false);
   });
 
   it("lets settings change the selected microphone", async () => {
@@ -345,6 +395,7 @@ describe("App", () => {
     vi.mocked(startRecording).mockRejectedValueOnce(new Error("microphone denied"));
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
+    await emitFloatingChromeExpanded(true);
 
     await emitRecordShortcut("Pressed");
 
@@ -376,6 +427,7 @@ describe("App", () => {
     vi.mocked(stopRecording).mockRejectedValueOnce(new Error("Local ASR is not configured"));
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
+    await emitFloatingChromeExpanded(true);
 
     await emitRecordShortcut("Pressed");
     expect(await screen.findByText("Recording")).toBeInTheDocument();
@@ -530,9 +582,11 @@ describe("App", () => {
 
     await emitLanguageHover(true);
     expect(toggle).toHaveClass("is-native-hovered");
+    expect(setFloatingChromeReason).toHaveBeenCalledWith("language_hover", true);
 
     await emitLanguageHover(false);
     expect(toggle).not.toHaveClass("is-native-hovered");
+    expect(setFloatingChromeReason).toHaveBeenCalledWith("language_hover", false);
   });
 
   it("refreshes microphone devices while settings are open", async () => {
@@ -565,6 +619,15 @@ async function emitRecordShortcut(payload: string) {
   });
   await act(async () => {
     eventListeners.get("wispergo://record-shortcut")?.({ payload });
+  });
+}
+
+async function emitFloatingChromeExpanded(payload: boolean) {
+  await waitFor(() => {
+    expect(eventListeners.has("wispergo://floating-chrome-expanded-changed")).toBe(true);
+  });
+  await act(async () => {
+    eventListeners.get("wispergo://floating-chrome-expanded-changed")?.({ payload });
   });
 }
 

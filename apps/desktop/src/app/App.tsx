@@ -16,6 +16,7 @@ import {
   requestAccessibility,
   selectedMicrophoneId,
   setLanguageMenuOpen,
+  setFloatingChromeReason,
   setMicrophoneDevice,
   setLocalModelSettings,
   setRecognitionLanguage,
@@ -37,6 +38,7 @@ type PermissionRequest = "microphone" | "accessibility";
 const MICROPHONE_REFRESH_MS = 2000;
 const ACCESSIBILITY_REFRESH_MS = 2000;
 const CLEANUP_RUNTIME_REFRESH_MS = 2000;
+const POST_INSERT_EXPANDED_MS = 1500;
 const RECOGNITION_LANGUAGES = [
   { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
@@ -70,6 +72,7 @@ export function App() {
   const [cleanupRuntime, setCleanupRuntime] = useState<CleanupRuntimeStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
+  const [floatingChromeExpanded, setFloatingChromeExpanded] = useState(false);
   const [lastInsert, setLastInsert] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [requestingPermission, setRequestingPermission] = useState<PermissionRequest | null>(null);
@@ -80,6 +83,8 @@ export function App() {
   const microphoneRef = useRef<MicrophoneStatus>(initialMicrophoneStatus);
   const microphoneDowngradeGraceUntilRef = useRef(0);
   const languageMenuOpenRef = useRef(false);
+  const postInsertTimerRef = useRef<number | null>(null);
+  const postInsertGraceActiveRef = useRef(false);
   const holdDownRef = useRef(false);
   const queuedStopAfterStartRef = useRef(false);
 
@@ -137,6 +142,80 @@ export function App() {
   }, [languageMenuOpen]);
 
   useEffect(() => {
+    return () => {
+      if (postInsertTimerRef.current !== null) {
+        window.clearTimeout(postInsertTimerRef.current);
+        postInsertTimerRef.current = null;
+      }
+      if (postInsertGraceActiveRef.current) {
+        postInsertGraceActiveRef.current = false;
+        void setFloatingChromeReason("post_insert", false).catch(() => undefined);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isRecorderSurface && !isLanguageSurface) {
+      return;
+    }
+
+    let mounted = true;
+    const unlisten = listen<boolean>("wispergo://floating-chrome-expanded-changed", (event) => {
+      if (mounted) {
+        setFloatingChromeExpanded(event.payload);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, [isRecorderSurface, isLanguageSurface]);
+
+  useEffect(() => {
+    if (!isRecorderSurface) {
+      return;
+    }
+
+    let mounted = true;
+    const unlisten = listen<boolean>("wispergo://recorder-hover-changed", (event) => {
+      if (mounted) {
+        setFloatingChromeExpanded(
+          event.payload ||
+            statusRef.current === "recording" ||
+            pendingRef.current ||
+            postInsertGraceActiveRef.current,
+        );
+      }
+    });
+
+    return () => {
+      mounted = false;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, [isRecorderSurface]);
+
+  useEffect(() => {
+    if (!isRecorderSurface) {
+      return;
+    }
+
+    void setFloatingChromeReason("recording", status === "recording").catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }, [isRecorderSurface, status]);
+
+  useEffect(() => {
+    if (!isRecorderSurface) {
+      return;
+    }
+
+    void setFloatingChromeReason("processing", pending).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+  }, [isRecorderSurface, pending]);
+
+  useEffect(() => {
     let mounted = true;
 
     void recognitionLanguage()
@@ -175,6 +254,9 @@ export function App() {
       }
 
       setLanguageNativeHovered(event.payload);
+      void setFloatingChromeReason("language_hover", event.payload).catch((err: unknown) => {
+        setError(errorMessage(err));
+      });
       if (!event.payload && languageMenuOpenRef.current) {
         updateLanguageMenuOpen(false);
       }
@@ -438,6 +520,27 @@ export function App() {
     stopActiveRecording("global_shortcut");
   }
 
+  function startPostInsertExpandedGrace() {
+    if (!isRecorderSurface) {
+      return;
+    }
+    if (postInsertTimerRef.current !== null) {
+      window.clearTimeout(postInsertTimerRef.current);
+    }
+
+    postInsertGraceActiveRef.current = true;
+    void setFloatingChromeReason("post_insert", true).catch((err: unknown) => {
+      setError(errorMessage(err));
+    });
+    postInsertTimerRef.current = window.setTimeout(() => {
+      postInsertTimerRef.current = null;
+      postInsertGraceActiveRef.current = false;
+      void setFloatingChromeReason("post_insert", false).catch((err: unknown) => {
+        setError(errorMessage(err));
+      });
+    }, POST_INSERT_EXPANDED_MS);
+  }
+
   function stopActiveRecording(reason: string) {
     if (statusRef.current !== "recording") {
       return;
@@ -449,7 +552,7 @@ export function App() {
       (result) => {
         setLastInsert(insertSummary(result));
       },
-      { errorStatus: "idle" },
+      { errorStatus: "idle", onSettled: startPostInsertExpandedGrace },
     );
   }
 
@@ -460,6 +563,7 @@ export function App() {
     options: {
       errorStatus?: RecordingStatus;
       onSettledSuccess?: () => void;
+      onSettled?: () => void;
     } = {},
   ) {
     const currentOperation = operationId.current + 1;
@@ -474,6 +578,7 @@ export function App() {
           applyPending(false);
           onSuccess?.(result);
           options.onSettledSuccess?.();
+          options.onSettled?.();
         }
       })
       .catch((err: unknown) => {
@@ -483,6 +588,7 @@ export function App() {
           }
           setError(errorMessage(err));
           applyPending(false);
+          options.onSettled?.();
         }
       });
   }
@@ -526,7 +632,7 @@ export function App() {
       }
     >
       {isRecorderSurface ? (
-        <FloatingRecorder status={status} busy={pending} />
+        <FloatingRecorder status={status} busy={pending} expanded={floatingChromeExpanded} />
       ) : null}
       {isLanguageSurface ? (
         <LanguageToggle

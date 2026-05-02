@@ -611,6 +611,7 @@ export function App() {
     : isLanguageSurface
       ? "app-shell language-surface"
       : "app-shell";
+  const showStatusMessages = !isRecorderSurface && !isLanguageSurface;
 
   return (
     <main className={shellClassName}>
@@ -637,12 +638,12 @@ export function App() {
           }}
         />
       ) : null}
-      {lastInsert ? (
+      {showStatusMessages && lastInsert ? (
         <p className="insert-status" role="status">
           {lastInsert}
         </p>
       ) : null}
-      {error ? (
+      {showStatusMessages && error ? (
         <p className="command-error" role="status">
           {error}
         </p>

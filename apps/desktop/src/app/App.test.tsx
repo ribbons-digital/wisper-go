@@ -147,7 +147,7 @@ describe("App", () => {
     await emitRecordShortcut("Released");
     expect(stopRecording).toHaveBeenCalledWith("global_shortcut");
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(await screen.findByText("Inserted: hello from voice")).toBeInTheDocument();
+    expect(screen.queryByText("Inserted: hello from voice")).not.toBeInTheDocument();
   });
 
   it("does not expose floating recorder mouse controls", async () => {
@@ -216,7 +216,7 @@ describe("App", () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByText("Inserted: hello from voice")).toBeInTheDocument();
+    expect(screen.queryByText("Inserted: hello from voice")).not.toBeInTheDocument();
     expect(setFloatingChromeReason).toHaveBeenCalledWith("post_insert", true);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1499);
@@ -447,7 +447,7 @@ describe("App", () => {
     );
   });
 
-  it("keeps status stable and reports failures when commands reject", async () => {
+  it("keeps status stable and hides command failures on the floating recorder surface", async () => {
     vi.mocked(startRecording).mockRejectedValueOnce(new Error("microphone denied"));
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
@@ -456,12 +456,10 @@ describe("App", () => {
     await emitRecordShortcut("Pressed");
 
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Wispergo could not complete that action. Check permissions and try again.",
-    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("sanitizes raw command errors before rendering", async () => {
+  it("does not render raw command errors on the floating recorder surface", async () => {
     window.history.pushState({}, "", "/?surface=recorder");
     vi.mocked(startRecording).mockRejectedValueOnce(
       "whisper failed --model /Users/example/private/model.bin http://127.0.0.1:11434",
@@ -469,17 +467,16 @@ describe("App", () => {
 
     render(<App />);
     await emitRecordShortcut("Pressed");
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect(
-      await screen.findByText(
-        "Wispergo could not complete that action. Check permissions and try again.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("Wispergo could not complete that action. Check permissions and try again.")).not.toBeInTheDocument();
     expect(screen.queryByText(/private\/model\.bin/)).not.toBeInTheDocument();
     expect(screen.queryByText(/127\.0\.0\.1:11434/)).not.toBeInTheDocument();
   });
 
-  it("returns to idle when stop fails after the native session has ended", async () => {
+  it("returns to idle without rendering stop failures on the floating recorder surface", async () => {
     vi.mocked(stopRecording).mockRejectedValueOnce(new Error("Local ASR is not configured"));
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);
@@ -491,12 +488,10 @@ describe("App", () => {
     await emitRecordShortcut("Released");
 
     expect(await screen.findByText("Ready")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent(
-      "Wispergo could not complete that action. Check permissions and try again.",
-    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("explains copied-only insertion as an auto-paste fallback", async () => {
+  it("does not render copied-only insertion details on the floating recorder surface", async () => {
     vi.mocked(stopRecording).mockResolvedValueOnce({
       result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
       insertion: "copied_only",
@@ -506,13 +501,14 @@ describe("App", () => {
 
     await emitRecordShortcut("Pressed");
     await emitRecordShortcut("Released");
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect(await screen.findByText(/Copied to clipboard; auto-paste failed/)).toHaveTextContent(
-      "Copied to clipboard; auto-paste failed. Check Accessibility permission: hello from voice",
-    );
+    expect(screen.queryByText(/Copied to clipboard; auto-paste failed/)).not.toBeInTheDocument();
   });
 
-  it("explains when no editable text field is focused", async () => {
+  it("does not render no-target insertion details on the floating recorder surface", async () => {
     vi.mocked(stopRecording).mockResolvedValueOnce({
       result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
       insertion: "no_editable_target",
@@ -522,13 +518,14 @@ describe("App", () => {
 
     await emitRecordShortcut("Pressed");
     await emitRecordShortcut("Released");
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect(await screen.findByText(/No editable text field detected/)).toHaveTextContent(
-      "No editable text field detected; copied to clipboard: hello from voice",
-    );
+    expect(screen.queryByText(/No editable text field detected/)).not.toBeInTheDocument();
   });
 
-  it("explains when Accessibility is unavailable during insertion", async () => {
+  it("does not render Accessibility insertion details on the floating recorder surface", async () => {
     vi.mocked(stopRecording).mockResolvedValueOnce({
       result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
       insertion: "accessibility_denied",
@@ -538,13 +535,14 @@ describe("App", () => {
 
     await emitRecordShortcut("Pressed");
     await emitRecordShortcut("Released");
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect(await screen.findByText(/Accessibility permission unavailable/)).toHaveTextContent(
-      "Accessibility permission unavailable; copied to clipboard: hello from voice",
-    );
+    expect(screen.queryByText(/Accessibility permission unavailable/)).not.toBeInTheDocument();
   });
 
-  it("explains secure text fields without copying sensitive dictation", async () => {
+  it("does not render secure-field insertion details on the floating recorder surface", async () => {
     vi.mocked(stopRecording).mockResolvedValueOnce({
       result: { kind: "insert_text", text: "secret", source: "local", confidence: null },
       insertion: "secure_field",
@@ -554,10 +552,11 @@ describe("App", () => {
 
     await emitRecordShortcut("Pressed");
     await emitRecordShortcut("Released");
+    await act(async () => {
+      await Promise.resolve();
+    });
 
-    expect(await screen.findByText(/Secure text field detected/)).toHaveTextContent(
-      "Secure text field detected; not inserted or copied.",
-    );
+    expect(screen.queryByText(/Secure text field detected/)).not.toBeInTheDocument();
   });
 
   it("renders only the recorder on the floating recorder surface", () => {

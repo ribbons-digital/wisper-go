@@ -177,29 +177,6 @@ export function App() {
       return;
     }
 
-    let mounted = true;
-    const unlisten = listen<boolean>("wispergo://recorder-hover-changed", (event) => {
-      if (mounted) {
-        setFloatingChromeExpanded(
-          event.payload ||
-            statusRef.current === "recording" ||
-            pendingRef.current ||
-            postInsertGraceActiveRef.current,
-        );
-      }
-    });
-
-    return () => {
-      mounted = false;
-      void unlisten.then((unsubscribe) => unsubscribe());
-    };
-  }, [isRecorderSurface]);
-
-  useEffect(() => {
-    if (!isRecorderSurface) {
-      return;
-    }
-
     void setFloatingChromeReason("recording", status === "recording").catch((err: unknown) => {
       setError(errorMessage(err));
     });

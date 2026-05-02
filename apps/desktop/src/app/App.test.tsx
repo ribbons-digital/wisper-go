@@ -175,6 +175,19 @@ describe("App", () => {
     expect(screen.queryByLabelText("Wispergo idle handle")).not.toBeInTheDocument();
   });
 
+  it("ignores recorder hover exit while native floating chrome remains expanded", async () => {
+    window.history.pushState({}, "", "/?surface=recorder");
+
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
+
+    await emitRecorderHoverChanged(false);
+
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Wispergo idle handle")).not.toBeInTheDocument();
+  });
+
   it("keeps recorder expanded briefly after insertion then clears post-insert reason", async () => {
     window.history.pushState({}, "", "/?surface=recorder");
 
@@ -628,6 +641,12 @@ async function emitFloatingChromeExpanded(payload: boolean) {
   });
   await act(async () => {
     eventListeners.get("wispergo://floating-chrome-expanded-changed")?.({ payload });
+  });
+}
+
+async function emitRecorderHoverChanged(payload: boolean) {
+  await act(async () => {
+    eventListeners.get("wispergo://recorder-hover-changed")?.({ payload });
   });
 }
 

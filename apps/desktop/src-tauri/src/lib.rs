@@ -48,7 +48,7 @@ pub fn run() {
             );
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
-            position_recorder_window(app.handle());
+            let _ = position_recorder_window(app.handle(), FloatingRecorderMode::Collapsed);
             position_language_window(app.handle(), false)?;
             configure_language_window_for_hover_tracking(app.handle());
             install_language_inactive_hover_monitor(app.handle());
@@ -379,13 +379,81 @@ unsafe fn activate_language_window_on_hover(ns_window: *mut std::ffi::c_void) {
     }
 }
 
-const FLOATING_BOTTOM_MARGIN: f64 = 88.0;
+const FLOATING_BOTTOM_MARGIN: f64 = 40.0;
 const FLOATING_GAP: f64 = 8.0;
+const RECORDER_COLLAPSED_WIDTH: f64 = 96.0;
+const RECORDER_COLLAPSED_HEIGHT: f64 = 10.0;
+const RECORDER_EXPANDED_WIDTH: f64 = 320.0;
+const RECORDER_EXPANDED_HEIGHT: f64 = 62.0;
 const LANGUAGE_CLOSED_WIDTH: f64 = 74.0;
 const LANGUAGE_CLOSED_HEIGHT: f64 = 52.0;
 const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
 const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
 const LANGUAGE_TOGGLE_BAR_HEIGHT: f64 = 40.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FloatingRecorderMode {
+    Collapsed,
+    Expanded,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FloatingChromeReason {
+    RecorderHover,
+    LanguageHover,
+    LanguageMenu,
+    Recording,
+    Processing,
+    PostInsert,
+}
+
+#[derive(Default)]
+struct FloatingChromeReasonState {
+    recorder_hover: bool,
+    language_hover: bool,
+    language_menu: bool,
+    recording: bool,
+    processing: bool,
+    post_insert: bool,
+}
+
+impl FloatingChromeReasonState {
+    fn set(&mut self, reason: FloatingChromeReason, active: bool) {
+        match reason {
+            FloatingChromeReason::RecorderHover => self.recorder_hover = active,
+            FloatingChromeReason::LanguageHover => self.language_hover = active,
+            FloatingChromeReason::LanguageMenu => self.language_menu = active,
+            FloatingChromeReason::Recording => self.recording = active,
+            FloatingChromeReason::Processing => self.processing = active,
+            FloatingChromeReason::PostInsert => self.post_insert = active,
+        }
+    }
+}
+
+fn floating_chrome_expanded(state: &FloatingChromeReasonState) -> bool {
+    state.recorder_hover
+        || state.language_hover
+        || state.language_menu
+        || state.recording
+        || state.processing
+        || state.post_insert
+}
+
+fn recorder_window_size_for_mode(mode: FloatingRecorderMode) -> (f64, f64) {
+    match mode {
+        FloatingRecorderMode::Collapsed => (RECORDER_COLLAPSED_WIDTH, RECORDER_COLLAPSED_HEIGHT),
+        FloatingRecorderMode::Expanded => (RECORDER_EXPANDED_WIDTH, RECORDER_EXPANDED_HEIGHT),
+    }
+}
+
+fn recorder_window_top_for_bottom_margin(
+    monitor_top: i32,
+    monitor_height: u32,
+    window_height: i32,
+    bottom_margin: i32,
+) -> i32 {
+    monitor_top + monitor_height as i32 - window_height - bottom_margin
+}
 
 fn logical_to_physical_i32(logical: f64, scale_factor: f64) -> i32 {
     (logical * scale_factor).round() as i32
@@ -452,9 +520,12 @@ fn recorder_window_physical_height(app: &tauri::AppHandle, scale_factor: f64) ->
         .or_else(|| configured_window_physical_height(app, "recorder", scale_factor))
 }
 
-fn position_recorder_window(app: &tauri::AppHandle) {
+fn position_recorder_window(
+    app: &tauri::AppHandle,
+    mode: FloatingRecorderMode,
+) -> tauri::Result<()> {
     let Some(window) = app.get_webview_window("recorder") else {
-        return;
+        return Ok(());
     };
     let monitor = window
         .current_monitor()
@@ -462,21 +533,32 @@ fn position_recorder_window(app: &tauri::AppHandle) {
         .flatten()
         .or_else(|| window.primary_monitor().ok().flatten());
     let Some(monitor) = monitor else {
-        return;
+        return Ok(());
     };
-    let Ok(window_size) = window.outer_size() else {
-        return;
-    };
+
+    let (logical_width, logical_height) = recorder_window_size_for_mode(mode);
+    window.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+        logical_width,
+        logical_height,
+    )))?;
 
     let monitor_position = monitor.position();
     let monitor_size = monitor.size();
-    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, monitor.scale_factor());
-    let x = centered_window_left(monitor_position.x, monitor_size.width, window_size.width);
-    let y =
-        monitor_position.y + monitor_size.height as i32 - window_size.height as i32 - bottom_margin;
-    let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+    let scale_factor = monitor.scale_factor();
+    let physical_width = logical_to_physical_u32(logical_width, scale_factor);
+    let physical_height = logical_to_physical_i32(logical_height, scale_factor);
+    let bottom_margin = logical_to_physical_i32(FLOATING_BOTTOM_MARGIN, scale_factor);
+    let x = centered_window_left(monitor_position.x, monitor_size.width, physical_width);
+    let y = recorder_window_top_for_bottom_margin(
+        monitor_position.y,
+        monitor_size.height,
+        physical_height,
+        bottom_margin,
+    );
+    window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
         x, y,
-    )));
+    )))?;
+    Ok(())
 }
 
 fn position_language_window(app: &tauri::AppHandle, open: bool) -> tauri::Result<()> {
@@ -540,8 +622,10 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        language_window_top_for_aligned_toggle_bar, recorder_window_ignores_cursor_events,
-        should_hide_window_on_close,
+        floating_chrome_expanded, language_window_top_for_aligned_toggle_bar,
+        recorder_window_ignores_cursor_events, recorder_window_size_for_mode,
+        recorder_window_top_for_bottom_margin, should_hide_window_on_close, FloatingChromeReason,
+        FloatingChromeReasonState, FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
     };
 
     #[test]
@@ -559,8 +643,9 @@ mod tests {
     fn language_window_top_aligns_toggle_bar_center_with_recorder_center() {
         let monitor_top = 0;
         let monitor_height = 900;
-        let bottom_margin = 88;
-        let recorder_height = 62;
+        let bottom_margin = FLOATING_BOTTOM_MARGIN as i32;
+        let (_, recorder_height) = recorder_window_size_for_mode(FloatingRecorderMode::Expanded);
+        let recorder_height = recorder_height as u32;
         let toggle_bar_height = 40;
         let monitor_bottom = monitor_top as f64 + monitor_height as f64;
         let recorder_center = monitor_bottom - bottom_margin as f64 - recorder_height as f64 / 2.0;
@@ -578,6 +663,67 @@ mod tests {
                 language_y as f64 + language_height as f64 - toggle_bar_height as f64 / 2.0;
 
             assert_eq!(language_bar_center, recorder_center);
+        }
+    }
+
+    #[test]
+    fn floating_bottom_margin_is_forty_logical_pixels() {
+        assert_eq!(FLOATING_BOTTOM_MARGIN, 40.0);
+    }
+
+    #[test]
+    fn recorder_window_size_switches_between_collapsed_handle_and_expanded_pill() {
+        assert_eq!(
+            recorder_window_size_for_mode(FloatingRecorderMode::Collapsed),
+            (96.0, 10.0)
+        );
+        assert_eq!(
+            recorder_window_size_for_mode(FloatingRecorderMode::Expanded),
+            (320.0, 62.0)
+        );
+    }
+
+    #[test]
+    fn recorder_window_top_uses_configured_bottom_margin() {
+        let monitor_top = 0;
+        let monitor_height = 900;
+        let collapsed_y = recorder_window_top_for_bottom_margin(
+            monitor_top,
+            monitor_height,
+            10,
+            FLOATING_BOTTOM_MARGIN as i32,
+        );
+        let expanded_y = recorder_window_top_for_bottom_margin(
+            monitor_top,
+            monitor_height,
+            62,
+            FLOATING_BOTTOM_MARGIN as i32,
+        );
+
+        assert_eq!(collapsed_y, 850);
+        assert_eq!(expanded_y, 798);
+    }
+
+    #[test]
+    fn floating_chrome_expands_when_any_reason_is_active() {
+        assert!(!floating_chrome_expanded(
+            &FloatingChromeReasonState::default()
+        ));
+
+        for reason in [
+            FloatingChromeReason::RecorderHover,
+            FloatingChromeReason::LanguageHover,
+            FloatingChromeReason::LanguageMenu,
+            FloatingChromeReason::Recording,
+            FloatingChromeReason::Processing,
+            FloatingChromeReason::PostInsert,
+        ] {
+            let mut state = FloatingChromeReasonState::default();
+            state.set(reason, true);
+            assert!(floating_chrome_expanded(&state));
+
+            state.set(reason, false);
+            assert!(!floating_chrome_expanded(&state));
         }
     }
 

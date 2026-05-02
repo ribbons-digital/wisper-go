@@ -506,13 +506,14 @@ const FLOATING_BOTTOM_MARGIN: f64 = 40.0;
 const FLOATING_GAP: f64 = 8.0;
 const RECORDER_COLLAPSED_WIDTH: f64 = 96.0;
 const RECORDER_COLLAPSED_HEIGHT: f64 = 10.0;
-const RECORDER_EXPANDED_WIDTH: f64 = 320.0;
-const RECORDER_EXPANDED_HEIGHT: f64 = 62.0;
+const RECORDER_EXPANDED_WIDTH: f64 = 304.0;
+const RECORDER_EXPANDED_HEIGHT: f64 = 48.0;
 const LANGUAGE_CLOSED_WIDTH: f64 = 74.0;
 const LANGUAGE_CLOSED_HEIGHT: f64 = 52.0;
 const LANGUAGE_OPEN_WIDTH: f64 = 260.0;
 const LANGUAGE_OPEN_HEIGHT: f64 = 190.0;
 const LANGUAGE_TOGGLE_BAR_HEIGHT: f64 = 40.0;
+const HOVER_COLLAPSE_GRACE_MS: u64 = 200;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FloatingRecorderMode {
@@ -541,8 +542,15 @@ struct FloatingChromeReasonState {
 }
 
 #[derive(Default)]
+struct HoverClearGeneration {
+    recorder_hover: u64,
+    language_hover: u64,
+}
+
+#[derive(Default)]
 struct FloatingChromeState {
     reasons: Mutex<FloatingChromeReasonState>,
+    hover_clear_generation: Mutex<HoverClearGeneration>,
 }
 
 impl FloatingChromeReasonState {
@@ -582,7 +590,96 @@ fn floating_chrome_window_state(state: &FloatingChromeReasonState) -> (bool, boo
     (floating_chrome_expanded(state), state.language_menu)
 }
 
+fn is_hover_reason(reason: FloatingChromeReason) -> bool {
+    matches!(
+        reason,
+        FloatingChromeReason::RecorderHover | FloatingChromeReason::LanguageHover
+    )
+}
+
+fn bump_hover_clear_generation(
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+) -> Result<Option<u64>, String> {
+    let mut generation = state
+        .hover_clear_generation
+        .lock()
+        .map_err(|_| "floating chrome hover state unavailable".to_string())?;
+    match reason {
+        FloatingChromeReason::RecorderHover => {
+            generation.recorder_hover = generation.recorder_hover.wrapping_add(1);
+            Ok(Some(generation.recorder_hover))
+        }
+        FloatingChromeReason::LanguageHover => {
+            generation.language_hover = generation.language_hover.wrapping_add(1);
+            Ok(Some(generation.language_hover))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn hover_clear_generation_matches(
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    expected: u64,
+) -> bool {
+    let Ok(generation) = state.hover_clear_generation.lock() else {
+        return false;
+    };
+    match reason {
+        FloatingChromeReason::RecorderHover => generation.recorder_hover == expected,
+        FloatingChromeReason::LanguageHover => generation.language_hover == expected,
+        _ => false,
+    }
+}
+
+fn current_floating_chrome_expanded(state: &FloatingChromeState) -> Result<bool, String> {
+    let reasons = state
+        .reasons
+        .lock()
+        .map_err(|_| "floating chrome state unavailable".to_string())?;
+    Ok(floating_chrome_expanded(&reasons))
+}
+
 fn set_floating_chrome_reason_active(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+    active: bool,
+) -> Result<bool, String> {
+    if is_hover_reason(reason) {
+        if active {
+            let _ = bump_hover_clear_generation(state, reason)?;
+        } else {
+            return set_floating_chrome_hover_reason_inactive_after_grace(app, state, reason);
+        }
+    }
+
+    set_floating_chrome_reason_active_immediate(app, state, reason, active)
+}
+
+fn set_floating_chrome_hover_reason_inactive_after_grace(
+    app: &tauri::AppHandle,
+    state: &FloatingChromeState,
+    reason: FloatingChromeReason,
+) -> Result<bool, String> {
+    let Some(generation) = bump_hover_clear_generation(state, reason)? else {
+        return set_floating_chrome_reason_active_immediate(app, state, reason, false);
+    };
+    let expanded = current_floating_chrome_expanded(state)?;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(HOVER_COLLAPSE_GRACE_MS));
+        let state = app.state::<FloatingChromeState>();
+        if !hover_clear_generation_matches(state.inner(), reason, generation) {
+            return;
+        }
+        let _ = set_floating_chrome_reason_active_immediate(&app, state.inner(), reason, false);
+    });
+    Ok(expanded)
+}
+
+fn set_floating_chrome_reason_active_immediate(
     app: &tauri::AppHandle,
     state: &FloatingChromeState,
     reason: FloatingChromeReason,
@@ -821,7 +918,7 @@ mod tests {
         parse_floating_chrome_reason, recorder_window_ignores_cursor_events,
         recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
         should_hide_window_on_close, FloatingChromeReason, FloatingChromeReasonState,
-        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
+        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN, HOVER_COLLAPSE_GRACE_MS,
     };
 
     #[test]
@@ -875,7 +972,7 @@ mod tests {
         );
         assert_eq!(
             recorder_window_size_for_mode(FloatingRecorderMode::Expanded),
-            (320.0, 62.0)
+            (304.0, 48.0)
         );
     }
 
@@ -892,12 +989,12 @@ mod tests {
         let expanded_y = recorder_window_top_for_bottom_margin(
             monitor_top,
             monitor_height,
-            62,
+            48,
             FLOATING_BOTTOM_MARGIN as i32,
         );
 
         assert_eq!(collapsed_y, 850);
-        assert_eq!(expanded_y, 798);
+        assert_eq!(expanded_y, 812);
     }
 
     #[test]
@@ -1165,6 +1262,35 @@ mod tests {
         assert!(production_source.contains("install_recorder_inactive_hover_monitor(app.handle())"));
         assert!(production_source.contains("wispergo://recorder-hover-changed"));
         assert!(production_source.contains("FloatingChromeReason::RecorderHover"));
+    }
+
+    #[test]
+    fn native_hover_collapse_waits_for_grace_before_clearing_reason() {
+        assert_eq!(HOVER_COLLAPSE_GRACE_MS, 200);
+
+        let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+            .expect("lib source");
+        let production_source = source
+            .split("\n#[cfg(test)]")
+            .next()
+            .expect("production lib source before tests");
+        let hover_update = production_source
+            .split("fn set_floating_chrome_reason_active(")
+            .nth(1)
+            .and_then(|source| {
+                source
+                    .split("\nfn language_window_visible_for_floating_chrome")
+                    .next()
+            })
+            .expect("floating chrome hover update source");
+
+        assert!(production_source.contains("const HOVER_COLLAPSE_GRACE_MS: u64 = 200;"));
+        assert!(hover_update.contains("set_floating_chrome_hover_reason_inactive_after_grace"));
+        assert!(hover_update.contains("std::thread::sleep"));
+        assert!(hover_update.contains("Duration::from_millis(HOVER_COLLAPSE_GRACE_MS)"));
+        assert!(hover_update.contains("set_floating_chrome_reason_active_immediate"));
+        assert!(hover_update.contains("state.inner(), reason, false"));
+        assert!(hover_update.contains("hover_clear_generation_matches"));
     }
 
     #[test]

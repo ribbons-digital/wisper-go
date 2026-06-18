@@ -42,6 +42,11 @@ export type CleanupRuntimeStatus = {
   message?: string | null;
 };
 
+export type AssetDownloadStatus =
+  | { state: "ready" }
+  | { state: "downloading"; assetId: string; displayName: string }
+  | { state: "failed"; message: string };
+
 export type CommandAction =
   | { kind: "new_line" }
   | { kind: "new_paragraph" }

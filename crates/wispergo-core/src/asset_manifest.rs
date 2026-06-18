@@ -43,6 +43,11 @@ pub struct AssetEntry {
     pub size: u64,
     /// Lowercase hex SHA-256 of the downloaded file, for verification.
     pub sha256: String,
+    /// Whether this asset is part of the default first-run download for its
+    /// role. At most one default per role is expected; the downloader fetches
+    /// all `default == true` entries on first run.
+    #[serde(default)]
+    pub default: bool,
 }
 
 /// The complete asset manifest.
@@ -126,6 +131,20 @@ impl AssetManifest {
                 return Err(ManifestError::DuplicateId(asset.id.clone()));
             }
         }
+        // At most one default per role.
+        let mut default_seen = std::collections::HashSet::new();
+        for asset in &self.assets {
+            if asset.default && !default_seen.insert(asset.role) {
+                return Err(ManifestError::InvalidField {
+                    id: asset.id.clone(),
+                    field: "default",
+                    reason: format!(
+                        "more than one default asset for role {:?}",
+                        asset.role
+                    ),
+                });
+            }
+        }
         Ok(())
     }
 
@@ -137,6 +156,12 @@ impl AssetManifest {
     /// All assets matching a role, in manifest order.
     pub fn by_role(&self, role: AssetRole) -> impl Iterator<Item = &AssetEntry> {
         self.assets.iter().filter(move |asset| asset.role == role)
+    }
+
+    /// All assets marked `default == true`, in manifest order. These are the
+    /// first-run download set.
+    pub fn defaults(&self) -> impl Iterator<Item = &AssetEntry> {
+        self.assets.iter().filter(|asset| asset.default)
     }
 }
 
@@ -390,6 +415,80 @@ mod tests {
             manifest.by_role(AssetRole::CleanupFull).count(),
             0
         );
+    }
+
+    #[test]
+    fn defaults_returns_entries_marked_default() {
+        let sha_a = "a".repeat(64);
+        let sha_b = "b".repeat(64);
+        let json = manifest_json(&format!(
+            r#"
+            {{
+                "id": "medium", "role": "asr",
+                "displayName": "Whisper medium",
+                "url": "https://e.org/m", "size": 100, "sha256": "{sha_a}",
+                "default": true
+            }},
+            {{
+                "id": "large-v3-turbo", "role": "asr",
+                "displayName": "Whisper large v3 turbo",
+                "url": "https://e.org/l", "size": 1500, "sha256": "{sha_b}"
+            }},
+            {{
+                "id": "qwen0.5b", "role": "cleanup_punctuation",
+                "displayName": "Qwen 0.5B",
+                "url": "https://e.org/q", "size": 400, "sha256": "{sha_a}",
+                "default": true
+            }}
+        "#
+        ));
+        let manifest = AssetManifest::from_json(&json).expect("valid");
+
+        let defaults: Vec<_> = manifest.defaults().collect();
+        assert_eq!(defaults.len(), 2);
+        assert_eq!(defaults[0].id, "medium");
+        assert_eq!(defaults[1].id, "qwen0.5b");
+    }
+
+    #[test]
+    fn defaults_field_is_optional_and_defaults_to_false() {
+        let sha = "a".repeat(64);
+        let json = manifest_json(&format!(
+            r#"{{
+                "id": "medium", "role": "asr",
+                "displayName": "Whisper medium",
+                "url": "https://e.org/m", "size": 100, "sha256": "{sha}"
+            }}"#
+        ));
+        let manifest = AssetManifest::from_json(&json).expect("valid");
+        assert!(!manifest.assets[0].default);
+        assert_eq!(manifest.defaults().count(), 0);
+    }
+
+    #[test]
+    fn rejects_two_defaults_for_same_role() {
+        let sha = "a".repeat(64);
+        let json = manifest_json(&format!(
+            r#"
+            {{
+                "id": "medium", "role": "asr",
+                "displayName": "Whisper medium",
+                "url": "https://e.org/m", "size": 100, "sha256": "{sha}",
+                "default": true
+            }},
+            {{
+                "id": "large", "role": "asr",
+                "displayName": "Whisper large",
+                "url": "https://e.org/l", "size": 200, "sha256": "{sha}",
+                "default": true
+            }}
+        "#
+        ));
+        let err = AssetManifest::from_json(&json).expect_err("two defaults same role");
+        assert!(matches!(
+            err,
+            ManifestError::InvalidField { field: "default", .. }
+        ));
     }
 
     #[test]

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AccessibilityStatus,
+  AssetDownloadStatus,
   AudioInputDevice,
   CleanupRuntimeStatus,
   LocalModelSettings,
@@ -103,3 +104,13 @@ export async function setFloatingChromeReason(
 ): Promise<boolean> {
   return invoke<boolean>("set_floating_chrome_reason", { reason, active });
 }
+
+export async function assetReadiness(): Promise<AssetDownloadStatus> {
+  return invoke<AssetDownloadStatus>("asset_readiness");
+}
+
+export async function ensureModelAssets(): Promise<AssetDownloadStatus> {
+  return invoke<AssetDownloadStatus>("ensure_model_assets");
+}
+
+export const ASSET_DOWNLOAD_EVENT = "wispergo://asset-download";

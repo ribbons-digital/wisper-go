@@ -281,15 +281,15 @@ mod tests {
 
     #[test]
     fn rejects_malformed_sha256() {
-        let json = manifest_json(&format!(
-            r#"{{
+        let json = manifest_json(
+            r#"{
                 "id": "medium", "role": "asr",
                 "displayName": "Whisper medium",
                 "url": "https://example.org/m.bin",
                 "size": 100,
                 "sha256": "not-hex-nope"
-            }}"#
-        ));
+            }"#,
+        );
         let err = AssetManifest::from_json(&json).expect_err("bad sha256");
         assert!(matches!(
             err,

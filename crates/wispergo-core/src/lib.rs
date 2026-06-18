@@ -2,6 +2,7 @@ pub mod asset_manifest;
 pub mod asset_storage;
 pub mod audio;
 pub mod domain;
+pub mod downloader;
 pub mod fallback;
 pub mod intent;
 pub mod llama_server;

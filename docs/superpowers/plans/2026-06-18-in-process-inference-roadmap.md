@@ -10,12 +10,18 @@ previous one is merged unless explicitly parallelizable.
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
-## Phase 0 — Foundations ⬜
+## Phase 0 — Foundations 🟡
 
-- **0.1 Asset manifest format + parser** ⬜
+- **0.1 Asset manifest format + parser** ✅
   - Define `models.manifest.json` schema (id, role, displayName, url, size,
     sha256). Add to `crates/wispergo-core` as a pure data type with unit tests.
   - DoD: parser unit-tested for valid/missing/malformed; no network.
+  - Done: `crates/wispergo-core/src/asset_manifest.rs` — `AssetRole`,
+    `AssetEntry`, `AssetManifest` with `from_json` + `validate` + `find`/`by_role`.
+    12 unit tests, clippy-clean (`--lib`). Added `schemaVersion` field for
+    forward-compat. SHA-256 validation is case-insensitive (downloader
+    normalizes). No `default` flag yet — deferred to Phase 1.1 when the
+    downloader needs first-run selection.
 
 - **0.2 App-support asset storage + path resolution** ⬜
   - Resolve `~/Library/Application Support/com.ribbonsdigital.wispergo/models/{asr,cleanup}/`

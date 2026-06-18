@@ -35,7 +35,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     Existing `InferenceResourcePaths` left untouched — removal is a later
     slice gated on the downloader.
 
-## Phase 1 — Asset Downloader 🟡
+## Phase 1 — Asset Downloader ✅
 
 - **1.1 Downloader core (resume + SHA-256 + atomic rename)** ✅
   - New component in `apps/desktop/src-tauri/src/inference/`. HTTP range resume
@@ -78,10 +78,21 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - Bug found & fixed during slice: serde `rename_all` on an internally-tagged
     enum does not propagate to variant fields; added per-variant `rename_all`.
 
-- **1.3 Re-verify-on-load** ⬜
+- **1.3 Re-verify-on-load** ✅
   - Cheap SHA-256 check before loading any asset; corrupt → re-download or
     raw-ASR fallback (cleanup only).
   - DoD: tests for corrupt-asset detection on both ASR and cleanup paths.
+  - Done: core `AssetIntegrity` enum + `verify_asset` / `integrity_sweep` /
+    `repair_asset` (re-downloads corrupt or missing) — 6 new downloader tests.
+    Desktop `asset_integrity` (sweep) + `repair_asset_by_id` commands with
+    `IntegrityReport` / `IntegrityProblem` / `AssetIntegrityStatus` types
+    (3 new serialization/round-trip tests). 227 Rust tests total, 64 TS.
+  - **Deferred to Phase 2/3 (documented)**: the actual load-path wiring (call
+    `verify_asset` before an in-process provider loads, auto-`repair_asset` on
+    corrupt). Today's sidecars don't load via `AssetStorage`, so wiring now
+    would be dead code. The hook exists; the call sites land with the in-
+    process providers. Phase 1 deliverable is the primitive + command, tested
+    in isolation — matches the roadmap note.
 
 > **Bridge state after Phase 1**: downloader works, but ASR/cleanup still run
 > via the old sidecars reading assets from app-support instead of the bundle.

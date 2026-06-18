@@ -23,11 +23,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     normalizes). No `default` flag yet — deferred to Phase 1.1 when the
     downloader needs first-run selection.
 
-- **0.2 App-support asset storage + path resolution** ⬜
+- **0.2 App-support asset storage + path resolution** ✅
   - Resolve `~/Library/Application Support/com.ribbonsdigital.wispergo/models/{asr,cleanup}/`
     from app handle. Replace `InferenceResourcePaths` bundled-path resolution
     with manifest-driven asset paths.
   - DoD: path resolution unit tests; existing `resources.rs` tests updated.
+  - Done: `crates/wispergo-core/src/asset_storage.rs` — pure `AssetStorage`
+    (role→subdir/extension, `asset_path`/`part_path`/`path_for` via manifest
+    lookup), 9 unit tests. Desktop glue `app_support_asset_storage` in
+    `inference/mod.rs` (bridge: `#[allow(dead_code)]`, not wired until Phase 1).
+    Existing `InferenceResourcePaths` left untouched — removal is a later
+    slice gated on the downloader.
 
 ## Phase 1 — Asset Downloader ⬜
 

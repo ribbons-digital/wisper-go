@@ -271,6 +271,76 @@ fn rename_atomic(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::rename(from, to)
 }
 
+/// Integrity state of an asset on disk, as determined by [`verify_asset`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssetIntegrity {
+    /// The final file exists and its SHA-256 matches the manifest entry.
+    Valid,
+    /// The final file exists but its SHA-256 does not match (corruption or
+    /// an out-of-date asset). The caller should [`repair_asset`] (re-download).
+    Corrupt,
+    /// The final file does not exist. The caller should download it.
+    Missing,
+}
+
+/// Check an asset's on-disk integrity against its manifest SHA-256.
+///
+/// Cheap single-pass hash of the final asset file. Returns `Missing` if the
+/// file is absent, `Corrupt` if present but the hash mismatches, `Valid` if it
+/// matches. Intended to run before a provider loads an asset, so a corrupt
+/// file triggers re-download rather than a confusing native crash.
+pub fn verify_asset(asset: &AssetEntry, storage: &AssetStorage) -> AssetIntegrity {
+    let path = storage.asset_path(&asset.id, asset.role);
+    if !path.exists() {
+        return AssetIntegrity::Missing;
+    }
+    match verify_sha256(&path, &asset.sha256) {
+        Ok(true) => AssetIntegrity::Valid,
+        Ok(false) => AssetIntegrity::Corrupt,
+        Err(_) => AssetIntegrity::Corrupt,
+    }
+}
+
+/// Re-download an asset whose on-disk integrity is `Corrupt` or `Missing`.
+///
+/// Removes any corrupt final file first, then delegates to [`Downloader::download`]
+/// (which fetches, verifies, and atomically renames). Returns the outcome on
+/// success. This is the repair path called after [`verify_asset`] reports a
+/// problem, or proactively before loading an ASR asset where a corrupt load
+/// could crash the engine.
+pub async fn repair_asset(
+    asset: &AssetEntry,
+    storage: &AssetStorage,
+    client: &Client,
+) -> Result<DownloadOutcome, DownloadError> {
+    let final_path = storage.asset_path(&asset.id, asset.role);
+    if final_path.exists() {
+        // Corrupt final file: remove so the downloader starts fresh rather
+        // than short-circuiting on the cached (corrupt) path.
+        fs::remove_file(&final_path)?;
+    }
+    let downloader = Downloader::new(client.clone(), storage.clone());
+    downloader.download(asset, false).await
+}
+
+/// Verify every default asset and report any that are not `Valid`.
+///
+/// Useful as a startup integrity sweep: returns the list of default assets
+/// that are `Missing` or `Corrupt` and thus need (re-)downloading.
+pub fn integrity_sweep<'a>(
+    manifest: &'a AssetManifest,
+    storage: &AssetStorage,
+) -> Vec<(&'a AssetEntry, AssetIntegrity)> {
+    manifest
+        .defaults()
+        .map(|asset| {
+            let integrity = verify_asset(asset, storage);
+            (asset, integrity)
+        })
+        .filter(|(_, integrity)| *integrity != AssetIntegrity::Valid)
+        .collect()
+}
+
 /// Readiness of a single default asset on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AssetReadiness {

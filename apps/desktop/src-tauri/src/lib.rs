@@ -10,7 +10,9 @@ mod trigger;
 
 use std::sync::Mutex;
 
-use commands::assets::{asset_readiness, ensure_model_assets, AssetClient};
+use commands::assets::{
+    asset_integrity, asset_readiness, ensure_model_assets, repair_asset_by_id, AssetClient,
+};
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
     accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
@@ -104,6 +106,8 @@ pub fn run() {
             cleanup_runtime_status,
             ensure_ollama_setup,
             ensure_model_assets,
+            asset_integrity,
+            repair_asset_by_id,
             list_microphones,
             selected_microphone_id,
             set_microphone_device,
@@ -1131,6 +1135,8 @@ mod tests {
         assert!(registered_commands.contains(&"ensure_ollama_setup".to_string()));
         assert!(registered_commands.contains(&"asset_readiness".to_string()));
         assert!(registered_commands.contains(&"ensure_model_assets".to_string()));
+        assert!(registered_commands.contains(&"asset_integrity".to_string()));
+        assert!(registered_commands.contains(&"repair_asset_by_id".to_string()));
     }
 
     #[test]

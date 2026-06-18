@@ -431,3 +431,134 @@ async fn download_defaults_records_failure_but_continues() {
     ));
     assert!(results[1].outcome.is_ok());
 }
+
+#[test]
+fn verify_asset_reports_missing_when_absent() {
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let asset = default_asset("medium", "http://x/a".to_string(), b"bytes", AssetRole::Asr);
+
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Missing
+    );
+}
+
+#[test]
+fn verify_asset_reports_valid_when_sha_matches() {
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let bytes = b"valid model bytes";
+    let asset = default_asset("medium", "http://x/a".to_string(), bytes, AssetRole::Asr);
+
+    let path = storage.asset_path("medium", AssetRole::Asr);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, bytes).unwrap();
+
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Valid
+    );
+}
+
+#[test]
+fn verify_asset_reports_corrupt_when_sha_mismatches() {
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let bytes = b"valid model bytes";
+    let asset = default_asset("medium", "http://x/a".to_string(), bytes, AssetRole::Asr);
+
+    let path = storage.asset_path("medium", AssetRole::Asr);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, b"corrupted contents").unwrap();
+
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Corrupt
+    );
+}
+
+#[test]
+fn integrity_sweep_reports_only_non_valid_defaults() {
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let good = b"asr bytes";
+    let manifest = manifest_with_assets(vec![
+        default_asset("medium", "http://x/a".to_string(), good, AssetRole::Asr),
+        default_asset(
+            "qwen0.5b",
+            "http://x/b".to_string(),
+            b"cleanup bytes",
+            AssetRole::CleanupPunctuation,
+        ),
+    ]);
+
+    // Place the ASR asset validly; leave cleanup missing.
+    let asr_path = storage.asset_path("medium", AssetRole::Asr);
+    fs::create_dir_all(asr_path.parent().unwrap()).unwrap();
+    fs::write(&asr_path, good).unwrap();
+
+    let sweep = wispergo_core::downloader::integrity_sweep(&manifest, &storage);
+    assert_eq!(sweep.len(), 1);
+    assert_eq!(sweep[0].0.id, "qwen0.5b");
+    assert_eq!(sweep[0].1, wispergo_core::downloader::AssetIntegrity::Missing);
+}
+
+#[tokio::test]
+async fn repair_asset_redownloads_corrupt_file() {
+    let server = MockServer::start();
+    let good = b"good bytes";
+    server.mock(|when, then| {
+        when.method(GET).path("/a");
+        then.status(200).body(good);
+    });
+
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let asset = default_asset("medium", server.url("/a"), good, AssetRole::Asr);
+
+    // Seed a corrupt final file.
+    let path = storage.asset_path("medium", AssetRole::Asr);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, b"corrupt").unwrap();
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Corrupt
+    );
+
+    let outcome = wispergo_core::downloader::repair_asset(&asset, &storage, &client())
+        .await
+        .expect("repair ok");
+    assert_eq!(outcome.source, DownloadSource::Fresh);
+
+    // Now valid.
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Valid
+    );
+    assert_eq!(fs::read(&path).unwrap(), good);
+}
+
+#[tokio::test]
+async fn repair_asset_downloads_missing_file() {
+    let server = MockServer::start();
+    let good = b"good bytes";
+    server.mock(|when, then| {
+        when.method(GET).path("/a");
+        then.status(200).body(good);
+    });
+
+    let tmp = TempDir::new().unwrap();
+    let storage = storage(&tmp);
+    let asset = default_asset("medium", server.url("/a"), good, AssetRole::Asr);
+
+    // Nothing on disk.
+    let outcome = wispergo_core::downloader::repair_asset(&asset, &storage, &client())
+        .await
+        .expect("repair ok");
+    assert_eq!(outcome.source, DownloadSource::Fresh);
+    assert_eq!(
+        wispergo_core::downloader::verify_asset(&asset, &storage),
+        wispergo_core::downloader::AssetIntegrity::Valid
+    );
+}

@@ -127,10 +127,10 @@ mod tests {
                     AssetEntry {
                         id: id.to_string(),
                         role: *role,
-                        display_name: format!("{id}"),
+                        display_name: (*id).to_string(),
                         url: format!("https://example.org/{id}"),
                         size: 100,
-                        sha256: std::iter::repeat(hex_char(sha)).take(64).collect(),
+                        sha256: std::iter::repeat_n(hex_char(sha), 64).collect(),
                     }
                 })
                 .collect(),
@@ -138,7 +138,7 @@ mod tests {
     }
 
     fn hex_char(b: u8) -> char {
-        let n = (b % 16) as u8;
+        let n = b % 16;
         if n < 10 {
             (b'0' + n) as char
         } else {

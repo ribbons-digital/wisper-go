@@ -35,13 +35,23 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     Existing `InferenceResourcePaths` left untouched — removal is a later
     slice gated on the downloader.
 
-## Phase 1 — Asset Downloader ⬜
+## Phase 1 — Asset Downloader 🟡
 
-- **1.1 Downloader core (resume + SHA-256 + atomic rename)** ⬜
+- **1.1 Downloader core (resume + SHA-256 + atomic rename)** ✅
   - New component in `apps/desktop/src-tauri/src/inference/`. HTTP range resume
     to `.part`, verify SHA-256, retry once on mismatch, atomic rename. No UI.
   - DoD: unit/integration tests for resume, mismatch→retry, corrupt→re-download,
     success path; uses a local file:// fixture, no real network in CI.
+  - Done: `crates/wispergo-core/src/downloader.rs` — `Downloader` with resumable
+    Range fetch (206-append vs 200-restart), SHA-256 verify, retry-once on
+    mismatch, atomic rename, cached-final / cached-part short-circuits, corrupt-
+    final re-download. 8 `httpmock` integration tests in
+    `tests/downloader_tests.rs` (fresh, resume, range-ignored, mismatch→retry→
+    fail, cached-final, corrupt-final, http-error, cleanup-gguf-path). No real
+    network. Added deps: `sha2`, `futures-util`, reqwest `stream` feature.
+  - Scope note: `allow_cached_part` flag added beyond DoD for re-run safety; the
+    manifest's `default` field (first-run selection) is deferred to 1.2 where
+    the `ensure_model_assets` command needs it.
 
 - **1.2 `ensure_model_assets` command + frontend status events** ⬜
   - Mirror `ensure_ollama_setup`: detect → download → verify → ready, emit

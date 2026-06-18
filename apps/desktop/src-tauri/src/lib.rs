@@ -10,6 +10,7 @@ mod trigger;
 
 use std::sync::Mutex;
 
+use commands::assets::{asset_readiness, ensure_model_assets, AssetClient};
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
     accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
@@ -59,6 +60,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
         .manage(CleanupRuntimeManager::default())
+        .manage(AssetClient::default())
         .manage(FloatingChromeState::default())
         .setup(move |app| {
             if let Err(err) = load_persisted_settings(app.handle(), app.state::<AppState>().inner())
@@ -101,12 +103,14 @@ pub fn run() {
             fallback_policy_label,
             cleanup_runtime_status,
             ensure_ollama_setup,
+            ensure_model_assets,
             list_microphones,
             selected_microphone_id,
             set_microphone_device,
             microphone_status,
             request_microphone_access,
             accessibility_status,
+            asset_readiness,
             request_accessibility,
             local_model_settings,
             set_local_model_settings,
@@ -1125,6 +1129,8 @@ mod tests {
         assert!(registered_commands.contains(&"set_recognition_language".to_string()));
         assert!(registered_commands.contains(&"set_language_menu_open".to_string()));
         assert!(registered_commands.contains(&"ensure_ollama_setup".to_string()));
+        assert!(registered_commands.contains(&"asset_readiness".to_string()));
+        assert!(registered_commands.contains(&"ensure_model_assets".to_string()));
     }
 
     #[test]

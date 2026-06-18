@@ -3,6 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "./SettingsPanel";
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(() => Promise.resolve(() => {})),
+}));
+
+vi.mock("../../lib/tauriApi", () => ({
+  ASSET_DOWNLOAD_EVENT: "wispergo://asset-download",
+  assetReadiness: vi.fn().mockResolvedValue({ state: "ready" }),
+  ensureModelAssets: vi.fn().mockResolvedValue({ state: "ready" }),
+}));
+
 type SettingsPanelProps = Parameters<typeof SettingsPanel>[0];
 
 function renderSettingsPanel(overrides: Partial<SettingsPanelProps> = {}) {
@@ -219,5 +229,25 @@ describe("SettingsPanel", () => {
 
     expect(screen.getByText("Microphone granted")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Grant microphone" })).not.toBeInTheDocument();
+  });
+});
+
+describe("SettingsPanel asset download", () => {
+  it("renders nothing when assets are ready", async () => {
+    const { assetReadiness } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({ state: "ready" });
+    renderSettingsPanel();
+    expect(screen.queryByText(/Downloading models/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry download/i })).not.toBeInTheDocument();
+  });
+
+  it("shows retry control when a download failed", async () => {
+    const { assetReadiness } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({
+      state: "failed",
+      message: "failed to download assets: medium",
+    });
+    renderSettingsPanel();
+    expect(await screen.findByRole("button", { name: "Retry download" })).toBeInTheDocument();
   });
 });

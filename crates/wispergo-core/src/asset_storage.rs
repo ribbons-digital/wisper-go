@@ -131,6 +131,7 @@ mod tests {
                         url: format!("https://example.org/{id}"),
                         size: 100,
                         sha256: std::iter::repeat_n(hex_char(sha), 64).collect(),
+                        default: false,
                     }
                 })
                 .collect(),

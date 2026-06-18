@@ -33,7 +33,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 vi.mock("../lib/tauriApi", () => ({
+  ASSET_DOWNLOAD_EVENT: "wispergo://asset-download",
   accessibilityStatus: vi.fn().mockResolvedValue({ granted: false, canPrompt: true }),
+  assetReadiness: vi.fn().mockResolvedValue({ state: "ready" }),
+  ensureModelAssets: vi.fn().mockResolvedValue({ state: "ready" }),
   cancelRecording: vi.fn().mockResolvedValue(undefined),
   cleanupRuntimeStatus: vi.fn().mockResolvedValue({ state: "ready", message: null }),
   fallbackPolicyLabel: vi.fn().mockResolvedValue("prefer_local_ask_before_cloud"),

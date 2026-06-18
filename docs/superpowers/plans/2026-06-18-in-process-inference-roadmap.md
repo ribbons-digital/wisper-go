@@ -53,11 +53,30 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     manifest's `default` field (first-run selection) is deferred to 1.2 where
     the `ensure_model_assets` command needs it.
 
-- **1.2 `ensure_model_assets` command + frontend status events** ⬜
+- **1.2 `ensure_model_assets` command + frontend status events** ✅
   - Mirror `ensure_ollama_setup`: detect → download → verify → ready, emit
     status events. First-run flow downloads Default Assets only.
   - DoD: command tested; frontend shows download state; ASR-unavailable-while-
     downloading state shown (not silent raw-ASR).
+  - Done: manifest `default` field + `defaults()` accessor + one-default-per-role
+    validation (3 new core tests). Core `missing_defaults` + `download_defaults`
+    orchestration with progress callback (5 new downloader tests). Desktop
+    `commands/assets.rs` with `asset_readiness` + `ensure_model_assets` commands
+    emitting `wispergo://asset-download` events, `AssetClient` state, bundled
+    `resources/models.manifest.json` placeholder. Frontend: `AssetDownloadStatus`
+    type, `tauriApi` wrappers, `AssetDownloadNotice` in SettingsPanel with
+    live event listener + retry control (2 new TS tests).
+  - **Deferred to Phase 2 (documented)**: the dictation-readiness gate
+    ("downloading models" blocking dictation). Gating now would block dictation
+    that currently works via the bundled sidecar, since ASR does not yet
+    consume downloaded assets. The gate lands with the in-process ASR provider.
+  - **Deferred to Phase 5 (documented)**: real model entries in the bundled
+    manifest (URLs/sizes/SHA-256s). 1.2 ships a structural placeholder; the
+    downloader is exercised by tests against a mock manifest, not real first-
+    run. Frontend hides the download affordance when status is Ready (so the
+    empty placeholder produces no confusing UI).
+  - Bug found & fixed during slice: serde `rename_all` on an internally-tagged
+    enum does not propagate to variant fields; added per-variant `rename_all`.
 
 - **1.3 Re-verify-on-load** ⬜
   - Cheap SHA-256 check before loading any asset; corrupt → re-download or

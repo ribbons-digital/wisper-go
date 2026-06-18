@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type {
   AccessibilityStatus,
+  AssetDownloadStatus,
   AudioInputDevice,
   CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
 } from "../../types/pipeline";
+import {
+  ASSET_DOWNLOAD_EVENT,
+  assetReadiness,
+  ensureModelAssets,
+} from "../../lib/tauriApi";
 
 type PermissionRequest = "microphone" | "accessibility";
 
@@ -43,11 +50,40 @@ export function SettingsPanel({
   onModelSettingsSave,
 }: Props) {
   const [draftModelSettings, setDraftModelSettings] = useState(modelSettings);
+  const [assetStatus, setAssetStatus] = useState<AssetDownloadStatus | null>(null);
+  const [downloadingAssets, setDownloadingAssets] = useState(false);
   const cleanupEnabled = draftModelSettings.cleanupMode !== "off";
 
   useEffect(() => {
     setDraftModelSettings(modelSettings);
   }, [modelSettings]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const unlisten = listen<AssetDownloadStatus>(ASSET_DOWNLOAD_EVENT, (event) => {
+      if (!cancelled) {
+        setAssetStatus(event.payload);
+        if (event.payload.state !== "downloading") {
+          setDownloadingAssets(false);
+        }
+      }
+    });
+    void assetReadiness().then((status) => {
+      if (!cancelled) setAssetStatus(status);
+    });
+    return () => {
+      cancelled = true;
+      void unlisten.then((unsubscribe) => unsubscribe());
+    };
+  }, []);
+
+  const handleDownloadAssets = () => {
+    setDownloadingAssets(true);
+    void ensureModelAssets().then((status) => {
+      setAssetStatus(status);
+      setDownloadingAssets(false);
+    });
+  };
 
   return (
     <section className="settings-panel" aria-label="Settings">
@@ -93,6 +129,11 @@ export function SettingsPanel({
         </button>
       </div>
       {cleanupEnabled && cleanupRuntime ? <CleanupRuntimeNotice status={cleanupRuntime} /> : null}
+      <AssetDownloadNotice
+        status={assetStatus}
+        downloading={downloadingAssets}
+        onDownload={handleDownloadAssets}
+      />
       <label>
         Microphone input
         <div className="microphone-row">
@@ -168,6 +209,40 @@ function CleanupRuntimeNotice({ status }: { status: CleanupRuntimeStatus }) {
   return (
     <div className="cleanup-runtime" aria-live="polite">
       {status.message ?? "Offline punctuation is unavailable."} Wispergo will use raw transcripts.
+    </div>
+  );
+}
+
+function AssetDownloadNotice({
+  status,
+  downloading,
+  onDownload,
+}: {
+  status: AssetDownloadStatus | null;
+  downloading: boolean;
+  onDownload: () => void;
+}) {
+  // Until the manifest is populated (Phase 5), readiness reports Ready and
+  // there is nothing to download. Show nothing in that case to avoid a
+  // confusing empty affordance.
+  if (!status || status.state === "ready") {
+    return null;
+  }
+
+  if (status.state === "downloading") {
+    return (
+      <div className="asset-download" aria-live="polite">
+        Downloading models: {status.displayName}…
+      </div>
+    );
+  }
+
+  return (
+    <div className="asset-download" aria-live="polite">
+      {status.message ?? "Model download failed."}{" "}
+      <button type="button" onClick={onDownload} disabled={downloading}>
+        {downloading ? "Retrying…" : "Retry download"}
+      </button>
     </div>
   );
 }

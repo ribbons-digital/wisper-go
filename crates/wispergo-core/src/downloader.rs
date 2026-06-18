@@ -21,7 +21,7 @@ use reqwest::{Client, StatusCode};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::asset_manifest::AssetEntry;
+use crate::asset_manifest::{AssetEntry, AssetManifest};
 use crate::asset_storage::AssetStorage;
 
 /// Outcome of a successful [`Downloader::download`] call.
@@ -269,6 +269,82 @@ fn rename_atomic(from: &Path, to: &Path) -> std::io::Result<()> {
         fs::remove_file(to)?;
     }
     fs::rename(from, to)
+}
+
+/// Readiness of a single default asset on disk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AssetReadiness {
+    /// The final asset file is present. (SHA verification is performed lazily
+    /// by the downloader; presence is enough to consider it "ready" for
+    /// gating purposes — a corrupt file re-downloads on next access.)
+    Present,
+    /// The final file is absent (a `.part` may or may not exist).
+    Missing,
+}
+
+/// Reports which default assets are missing from `storage`.
+///
+/// Returns the list of default [`AssetEntry`]s whose final file does not yet
+/// exist. Pure filesystem existence check (no SHA); used to decide whether a
+/// first-run download is needed.
+pub fn missing_defaults<'a>(
+    manifest: &'a AssetManifest,
+    storage: &AssetStorage,
+) -> Vec<&'a AssetEntry> {
+    manifest
+        .defaults()
+        .filter(|asset| {
+            !storage
+                .asset_path(&asset.id, asset.role)
+                .exists()
+        })
+        .collect()
+}
+
+/// Per-asset outcome of [`download_defaults`].
+#[derive(Debug)]
+pub struct DefaultDownloadResult {
+    pub asset_id: String,
+    pub outcome: Result<DownloadOutcome, DownloadError>,
+}
+
+/// Download every default asset in `manifest` that is not already present.
+///
+/// Calls `on_progress` (if provided) with the asset id and bytes-so-far before
+/// each download starts, so the caller can emit UI events. Assets already
+/// present are skipped (counted as `Cached`).
+pub async fn download_defaults<F>(
+    manifest: &AssetManifest,
+    storage: &AssetStorage,
+    client: &Client,
+    mut on_progress: F,
+) -> Vec<DefaultDownloadResult>
+where
+    F: FnMut(&AssetEntry),
+{
+    let downloader = Downloader::new(client.clone(), storage.clone());
+    let mut results = Vec::new();
+    for asset in manifest.defaults() {
+        // Skip if already present; the downloader's own cached-final path would
+        // also handle this, but skipping avoids a redundant progress signal.
+        if storage.asset_path(&asset.id, asset.role).exists() {
+            results.push(DefaultDownloadResult {
+                asset_id: asset.id.clone(),
+                outcome: Ok(DownloadOutcome {
+                    final_path: storage.asset_path(&asset.id, asset.role),
+                    source: DownloadSource::Cached,
+                }),
+            });
+            continue;
+        }
+        on_progress(asset);
+        let outcome = downloader.download(asset, true).await;
+        results.push(DefaultDownloadResult {
+            asset_id: asset.id.clone(),
+            outcome,
+        });
+    }
+    results
 }
 
 // Suppress unused import warning until the async read path is exercised; the

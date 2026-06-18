@@ -11,4 +11,5 @@ pub mod pipeline;
 pub mod privacy;
 pub mod providers;
 pub mod store;
+pub mod whisper_rs_provider;
 pub mod whisper_sidecar;

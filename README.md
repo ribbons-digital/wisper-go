@@ -89,10 +89,16 @@ pnpm desktop:build:offline-release
 
 ### Prerequisites
 
-- macOS
+- macOS (Apple Silicon; Intel is no longer supported as of the in-process inference migration — see ADR-0001)
 - Rust toolchain
 - Node.js + pnpm
 - Tauri v2 dependencies
+- `cmake` and `clang` (required to build the in-process whisper.cpp ASR provider via the `whisper-rs` cargo feature; install with `brew install cmake`)
+
+> Note: the `whisper-rs` feature is off by default during the migration bridge
+> state. A plain `pnpm desktop:dev` / `pnpm desktop:build` does not require
+> cmake. It becomes required once the in-process ASR provider is the default
+> (Phase 2.3).
 
 ### Install dependencies
 

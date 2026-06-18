@@ -98,13 +98,24 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 > via the old sidecars reading assets from app-support instead of the bundle.
 > This keeps the app functional while the engine migrates.
 
-## Phase 2 — In-Process ASR ⬜
+## Phase 2 — In-Process ASR 🟡
 
-- **2.1 Integrate `whisper-rs`, Metal feature, build pipeline** ⬜
+- **2.1 Integrate `whisper-rs`, Metal feature, build pipeline** ✅
   - Add dependency, pin version, get a clean arm64 release build with Metal.
   - DoD: `cargo build --release` succeeds; CI builds arm64. Stop-rule: if
     `whisper-rs` Metal build is broken on the pinned version, block and
     re-pin before continuing.
+  - Done: pinned `whisper-rs = "0.16"` (resolves to 0.16.0, 2026-03-12) as an
+    **optional** cargo feature in `wispergo-core`, with `metal` enabled via
+    target-cfg on `cfg(all(target_os = "macos", target_arch = "aarch64"))` (Intel
+    Macs and non-macOS fall back to CPU). Placeholder `whisper_rs_provider`
+    module + build-integration smoke test (`linked_whisper_version()`). Verified:
+    clean arm64 release build with Metal (28s), smoke test passes, clippy clean
+    both default and feature-on. Feature is **off by default** (bridge state —
+    the `whisper-cli` sidecar is still ASR). README prerequisites updated to
+    note cmake+clang required when the feature is on. Build prereq `cmake`
+    installed via Homebrew on the dev machine.
+  - Stop-rule outcome: pinned 0.16.0 built cleanly first try; no re-pin needed.
 
 - **2.2 `WhisperRsProvider` implementing `AsrProvider`** ⬜
   - New provider in `crates/wispergo-core` (or desktop) taking `f32` PCM

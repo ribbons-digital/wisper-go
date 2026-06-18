@@ -117,12 +117,30 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     installed via Homebrew on the dev machine.
   - Stop-rule outcome: pinned 0.16.0 built cleanly first try; no re-pin needed.
 
-- **2.2 `WhisperRsProvider` implementing `AsrProvider`** ⬜
+- **2.2 `WhisperRsProvider` implementing `AsrProvider`** ✅
   - New provider in `crates/wispergo-core` (or desktop) taking `f32` PCM
     directly — no temp WAV. Persistent context; language (Auto/EN/ZH) as a
     context parameter.
   - DoD: provider trait tests; language-arg parity with the retired
     `WhisperSidecarProvider`; temp-WAV code path removed.
+  - Done: `WhisperRsProvider` in `crates/wispergo-core/src/whisper_rs_provider.rs`
+    (feature-gated). Holds a persistent `WhisperContext` in `Arc<Mutex<Option<_>>>`,
+    lazily loaded on first `transcribe` and reused across calls (the latency
+    win over the sidecar's per-utterance reload). Takes `f32` PCM directly —
+    no temp WAV. Language (Auto/EN/ZH) maps to `FullParams::set_language`.
+    Transcription runs on `spawn_blocking` with a timeout, matching the
+    sidecar's `ProviderError` shape (Timeout / Failed / InvalidOutput /
+    Unavailable). 7 unit tests (normalize_language, no-speech sentinels,
+    builder storage, defaults, lowercase normalization).
+  - **Intentional difference from sidecar**: explicit language codes are
+    lowercased (whisper.cpp documents lowercase; the CLI was case-insensitive).
+    Caught by a test before merge; documented as a safe normalization.
+  - **Still not wired into the pipeline** (that's 2.3). Feature stays off by
+    default; the `whisper-cli` sidecar remains the live ASR. Temp-WAV code in
+    the sidecar is left in place until 2.3 retires the sidecar.
+  - Concurrency: a `transcribe` call holds the context lock for its full
+    duration, serializing transcriptions — intentional for single-user
+    dictation; Phase 4 `InferenceManager` owns idle-unload, not parallelism.
 
 - **2.3 Retire `whisper-cli` sidecar** ⬜
   - Remove `WhisperSidecarProvider` and `whisper-cli` from the manifest/resource

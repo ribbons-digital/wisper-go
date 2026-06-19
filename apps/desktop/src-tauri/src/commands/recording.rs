@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
 use wispergo_core::audio::{trim_silence, VadConfig};
+use wispergo_core::cleanup_inprocess::{LlamaCppCleanupConfig, LlamaCppCleanupProvider};
 use wispergo_core::domain::PipelineResult;
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 use wispergo_core::providers::{
@@ -14,7 +15,7 @@ use wispergo_core::providers::{
 use wispergo_core::whisper_rs_provider::WhisperRsProvider;
 
 use crate::audio::{capture_stats, AudioCaptureStats};
-use crate::inference::cleanup_runtime::CleanupRuntimeManager;
+use crate::inference::cleanup_runtime::{CleanupRuntimeManager, CleanupRuntimeState};
 use crate::inference::resources::InferenceResourcePaths;
 use crate::insertion::clipboard::{insert_text_detailed, InsertionDiagnostics, InsertionResult};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecordingStatus};
@@ -85,7 +86,8 @@ pub async fn stop_recording(
     let audio = state.stop_recording(&reason)?;
     let stop_ms = stop_start.elapsed().as_millis();
     let bundled_resources = bundled_inference_resources(&app);
-    let cleanup_provider = cleanup_provider_for_recording(cleanup_runtime.inner());
+    let cleanup_provider =
+        cleanup_provider_for_recording(cleanup_runtime.inner(), bundled_resources.as_ref());
 
     let process_start = Instant::now();
     let processed = process_recording(
@@ -945,15 +947,25 @@ fn settings_path(path: &Option<String>) -> Option<PathBuf> {
 
 fn cleanup_provider_for_recording(
     cleanup_runtime: &CleanupRuntimeManager,
+    bundled_resources: Option<&InferenceResourcePaths>,
 ) -> Option<Box<dyn TextCleanupProvider>> {
     if env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref() == Some("ollama") {
         return ollama_cleanup_provider()
             .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>);
     }
 
-    cleanup_runtime
-        .provider()
-        .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>)
+    if cleanup_runtime.status().state != CleanupRuntimeState::Ready {
+        return None;
+    }
+
+    let model_path = bundled_resources?.cleanup_model_path.clone();
+    if !model_path.exists() {
+        return None;
+    }
+
+    Some(Box::new(LlamaCppCleanupProvider::new(
+        LlamaCppCleanupConfig::new(model_path),
+    )))
 }
 
 fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {

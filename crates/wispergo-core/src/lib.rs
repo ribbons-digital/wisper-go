@@ -7,7 +7,6 @@ pub mod domain;
 pub mod downloader;
 pub mod fallback;
 pub mod intent;
-pub mod llama_server;
 pub mod ollama;
 pub mod pipeline;
 pub mod privacy;

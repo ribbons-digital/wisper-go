@@ -27,12 +27,11 @@ whisper-rs = ["dep:whisper-rs"]
 
 ## In-process llama.cpp cleanup provider (Phase 3). Builds llama.cpp via
 ## llama-cpp-sys-2 (requires cmake + clang). Metal on Apple Silicon, CPU-only
-## elsewhere. OFF by default during the bridge state where the bundled
-## `llama-server` sidecar is still the cleanup runtime; flips on by default in
-## Phase 3.3 when the sidecar is retired.
+## elsewhere. ON by default — the in-process provider is the product cleanup
+## backend; the cleanup sidecar has been retired.
 llama-cpp = ["dep:llama-cpp-2"]
 
-default = ["whisper-rs"]
+default = ["whisper-rs", "llama-cpp"]
 
 # Apple Silicon: enable Metal acceleration.
 # Intel Macs and other targets fall back to the CPU build (no metal feature).

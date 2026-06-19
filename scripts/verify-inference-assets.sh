@@ -6,9 +6,7 @@ RESOURCE_DIR="$ROOT_DIR/apps/desktop/src-tauri/resources"
 
 required=(
   "bin/macos-aarch64/whisper-cli"
-  "bin/macos-aarch64/llama-server"
   "bin/macos-x86_64/whisper-cli"
-  "bin/macos-x86_64/llama-server"
   "models/asr/ggml-large-v3-turbo.bin"
   "models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"
 )

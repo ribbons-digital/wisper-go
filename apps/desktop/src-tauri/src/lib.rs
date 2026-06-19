@@ -1708,7 +1708,8 @@ mod tests {
         assert!(script.contains("arm64") && script.contains("macos-aarch64"));
         assert!(script.contains("x86_64") && script.contains("macos-x86_64"));
         assert!(script.contains("bin/$current_arch/whisper-cli"));
-        assert!(script.contains("bin/$current_arch/llama-server"));
+        let retired_cleanup_sidecar = ["bin/$current_arch/llama", "-server"].concat();
+        assert!(!script.contains(&retired_cleanup_sidecar));
         assert!(script.contains("models/asr/ggml-large-v3-turbo.bin"));
         assert!(script.contains("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"));
         assert!(script.contains("[[ ! -f \"$RESOURCE_DIR/$relative\" ]]"));

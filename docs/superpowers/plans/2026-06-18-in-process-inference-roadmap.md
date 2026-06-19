@@ -182,13 +182,23 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     (`llama-cpp-sys-2` resolved to 0.1.150 transitively — the safe crate's
     `^0.1.146` permits it; normal for this fast-moving crate.)
 
-- **3.2 `LlamaCppCleanupProvider` behind existing traits** ⬜
+- **3.2 `LlamaCppCleanupProvider` behind existing traits** ✅
   - New provider implementing `TextCleanupProvider` + `CleanupProvider` using
     the **same prompt contract** as `crates/wispergo-core/src/llama_server.rs`
     (reuse the prompts verbatim; only transport changes from HTTP to
     in-process completion).
   - DoD: provider tests with a tiny GGUF fixture; prompt-output parsing reuses
     `parse_punctuation_cleanup_text` / `parse_cleanup_json`.
+  - Research complete: `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md`.
+  - Done: shared cleanup prompt/parsing contract extracted to
+    `crates/wispergo-core/src/cleanup_prompt.rs`; `llama_server.rs` and
+    `ollama.rs` now reuse it while preserving provider-specific errors.
+    `LlamaCppCleanupProvider` in `cleanup_inprocess.rs` implements
+    `TextCleanupProvider` + `CleanupProvider` behind the existing `llama-cpp`
+    feature, using model chat templates + greedy decode loop + existing parsers.
+    Tests: shared prompt/parser integration tests, fake completion-seam provider
+    tests, and ignored `WISPERGO_LLAMA_TEST_GGUF` real-GGUF integration test.
+    Approved DoD refinement: no committed tiny GGUF fixture.
 
 - **3.3 Retire `llama-server` sidecar + `CleanupRuntimeManager` process layer** ⬜
   - Remove `llama_server.rs` HTTP provider, `CleanupRuntimeCommand`,

@@ -6327,6 +6327,7 @@ name = "wispergo-core"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "encoding_rs",
  "futures-util",
  "httpmock",
  "llama-cpp-2",

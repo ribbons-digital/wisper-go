@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated after Phase 3.3 local verification)
-**Next session focus:** Commit/push/open PR for completed **Phase 3.3 (cleanup sidecar + process runtime retirement)** on branch `phase-3-3-retire-llama-server-runtime`, then wait for user merge. After merge, sync main/clean branch and scope Phase 4 `InferenceManager` lifecycle. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-19 (updated after Phase 4.1 local verification)
+**Next session focus:** Commit/push/open PR for completed **Phase 4.1 `InferenceManager` lifecycle core** on branch `phase-4-1-inference-manager-lifecycle`, then wait for user merge. After merge, sync main/clean branch and scope Phase 4.2 recording/settings wiring. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -10,8 +10,8 @@
 - **Phase 2 (In-Process ASR) is complete and merged** (PR #7). The `whisper-cli` sidecar is deleted; `whisper-rs` is the default ASR.
 - **Phase 3.1 is complete and merged** (PR #8): `llama-cpp-2` pinned at 0.1.146 as an optional, off-by-default `llama-cpp` cargo feature; Metal build verified on arm64.
 - **Phase 3.2 is complete and merged** (PR #9): `LlamaCppCleanupProvider` exists behind the existing traits/feature, with shared prompt/parsing contract and approved fake-seam + ignored real-GGUF test strategy.
-- **Phase 3.3 is implemented and verified locally** on branch `phase-3-3-retire-llama-server-runtime`: cleanup sidecar path is deleted, `llama-cpp` is on by default, recording uses `LlamaCppCleanupProvider`, and `cleanup_runtime_status` is now a lightweight bridge until Phase 4.
-- **Local `main` was in sync** with `origin/main` after PR #9; current work is on feature branch `phase-3-3-retire-llama-server-runtime`.
+- **Phase 3.3 is complete and merged** (PR #10): cleanup sidecar path is deleted, `llama-cpp` is on by default, recording uses `LlamaCppCleanupProvider`, and `cleanup_runtime_status` is now a lightweight bridge until Phase 4.
+- **Local `main` was in sync** with `origin/main` after PR #10; current work is on feature branch `phase-4-1-inference-manager-lifecycle`.
 
 ## The work, in one paragraph
 
@@ -22,7 +22,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Roadmap (source of truth for what's next):** `docs/superpowers/plans/2026-06-18-in-process-inference-roadmap.md` — every slice has a ✅/🟡/⬜ status and DoD. Check statuses here before starting.
 - **Phase 3.2 API research:** `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md` — pinned `llama-cpp-2 = 0.1.146` API findings with exact permalinks. This replaces the old instruction to run `librarian`.
 - **Phase 3.2 design:** `docs/superpowers/specs/2026-06-19-llama-cpp-cleanup-provider-3-2-design.md` — approved and implemented in PR #9.
-- **Phase 3.3 design draft:** `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md` — review/approve this before implementation.
+- **Phase 3.3 design:** `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md` — approved and implemented in PR #10.
+- **Phase 4 design:** `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md` — approved by user; Phase 4.1 implemented locally.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -36,7 +37,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 0 Foundations (manifest + storage) | ✅ | PRs #1 |
 | 1 Asset Downloader (core + command + integrity) | ✅ | PRs #2, #3, #4 |
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
-| 3 In-Process Cleanup | ✅ locally complete through 3.3 (PR needed) | PRs #8, #9 |
+| 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
 | 4 InferenceManager lifecycle | ⬜ | — |
 | 5 Model tiering + readiness gate | ⬜ | — |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
@@ -65,11 +66,17 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #9. Shared `cleanup_prompt` extraction is complete; `llama_server.rs` and `ollama.rs` reuse it; `LlamaCppCleanupProvider` implements `TextCleanupProvider` + `CleanupProvider` behind `llama-cpp`; the real local llama.cpp engine constructor compiles; and the ignored `WISPERGO_LLAMA_TEST_GGUF` integration test exists.
 
-## Current slice: Phase 3.3 — retire cleanup sidecar + process runtime
+## Recently completed slice: Phase 3.3 — retire cleanup sidecar + process runtime
 
 **Design status:** Approved in `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md`.
 
-**Implementation status:** Implemented and verified locally on branch `phase-3-3-retire-llama-server-runtime`. Deleted the retired HTTP cleanup provider and tests; flipped `llama-cpp` on by default; changed recording to use `LlamaCppCleanupProvider` for local cleanup while preserving the Ollama dev override; replaced process runtime internals with a lightweight `cleanup_runtime_status` bridge; removed cleanup sidecar binary checks from scripts/README. Next action is PR creation.
+**Implementation status:** Merged in PR #10. Deleted the retired HTTP cleanup provider and tests; flipped `llama-cpp` on by default; changed recording to use `LlamaCppCleanupProvider` for local cleanup while preserving the Ollama dev override; replaced process runtime internals with a lightweight `cleanup_runtime_status` bridge; removed cleanup sidecar binary checks from scripts/README.
+
+## Current slice: Phase 4.1 — `InferenceManager` lifecycle core
+
+**Design status:** Approved in `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md`.
+
+**Implementation status:** Implemented and verified locally on branch `phase-4-1-inference-manager-lifecycle`. Added `apps/desktop/src-tauri/src/inference/manager.rs` with dedicated per-engine worker threads, command channels, lazy-load-on-request, idle unload, generation-guarded stale unload protection, failure/panic unload, reload-on-next-request, fake-engine tests, and ASR + cleanup slots. No recording/settings wiring yet; Phase 4.2 owns live integration.
 
 ## Key gotchas learned this run (save yourself the time)
 

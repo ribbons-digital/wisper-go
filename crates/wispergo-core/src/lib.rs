@@ -1,6 +1,7 @@
 pub mod asset_manifest;
 pub mod asset_storage;
 pub mod audio;
+pub mod cleanup_inprocess;
 pub mod domain;
 pub mod downloader;
 pub mod fallback;

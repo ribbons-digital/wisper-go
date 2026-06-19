@@ -1,5 +1,7 @@
 #[allow(dead_code)]
 pub mod cleanup_runtime;
+#[allow(dead_code)]
+pub mod manager;
 pub mod resources;
 
 use tauri::{AppHandle, Manager};
@@ -14,9 +16,6 @@ use wispergo_core::asset_storage::AssetStorage;
 /// this yet.
 #[allow(dead_code)]
 pub fn app_support_asset_storage(app: &AppHandle) -> Result<AssetStorage, String> {
-    let base = app
-        .path()
-        .app_config_dir()
-        .map_err(|err| err.to_string())?;
+    let base = app.path().app_config_dir().map_err(|err| err.to_string())?;
     Ok(AssetStorage::new(base.join("models")))
 }

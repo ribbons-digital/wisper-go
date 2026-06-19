@@ -214,14 +214,16 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
 ## Phase 4 — InferenceManager Lifecycle ⬜
 
-- **4.1 Lazy-load + idle-unload state machine** ⬜
-  - New `InferenceManager` (replaces `CleanupRuntimeManager`) for both ASR and
-    cleanup. Same frontend states/events. Lazy load on first use; idle unload
-    (cleanup 5 min, ASR longer window). Generation-guarded reload-on-failure.
-  - DoD: state-transition unit tests mirroring the existing
-    `cleanup_runtime.rs` tests (default-unavailable, ready, failed, restart
-    guard invalidated by shutdown, etc.); dedicated-thread + `catch_unwind`
-    panic guards tested.
+- **4.1 Lazy-load + idle-unload state machine** ✅ locally complete (PR needed)
+  - New `InferenceManager` lifecycle core for ASR and cleanup slots. Same
+    frontend-compatible states. Lazy load on first request; idle unload;
+    generation-guarded stale unload protection; reload-on-next-request after
+    failure.
+  - Done locally: added `apps/desktop/src-tauri/src/inference/manager.rs` with
+    dedicated per-engine worker threads, command channels, fake-engine state
+    transition tests, `catch_unwind` panic guards, idle unload tests, and ASR +
+    cleanup manager slots. No recording/settings wiring yet; 4.2 owns that.
+  - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md`.
 
 - **4.2 Wire `sync_cleanup_runtime_for_settings` → `InferenceManager`** ⬜
   - "Arm, don't load" at setup; first dictation triggers load. Settings change

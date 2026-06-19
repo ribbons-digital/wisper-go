@@ -6,17 +6,14 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
 use wispergo_core::audio::{trim_silence, VadConfig};
-use wispergo_core::cleanup_inprocess::{LlamaCppCleanupConfig, LlamaCppCleanupProvider};
 use wispergo_core::domain::PipelineResult;
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
-use wispergo_core::providers::{
-    AsrOutput, AsrProvider, CleanupInput, ProviderError, TextCleanupProvider,
-};
-use wispergo_core::whisper_rs_provider::WhisperRsProvider;
+use wispergo_core::providers::{AsrOutput, CleanupInput, TextCleanupProvider};
 
 use crate::audio::{capture_stats, AudioCaptureStats};
-use crate::inference::cleanup_runtime::{CleanupRuntimeManager, CleanupRuntimeState};
-use crate::inference::resources::InferenceResourcePaths;
+use crate::inference::manager::{
+    AsrInferenceOutput, AsrInferenceRequest, CleanupInferenceRequest, InferenceManager,
+};
 use crate::insertion::clipboard::{insert_text_detailed, InsertionDiagnostics, InsertionResult};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecordingStatus};
 
@@ -78,22 +75,20 @@ pub fn start_recording(state: State<'_, AppState>, mode: String) -> Result<(), S
 pub async fn stop_recording(
     app: AppHandle,
     state: State<'_, AppState>,
-    cleanup_runtime: State<'_, CleanupRuntimeManager>,
+    inference_manager: State<'_, InferenceManager>,
     reason: String,
 ) -> Result<StopRecordingOutput, String> {
     let total_start = Instant::now();
     let stop_start = Instant::now();
     let audio = state.stop_recording(&reason)?;
     let stop_ms = stop_start.elapsed().as_millis();
-    let bundled_resources = bundled_inference_resources(&app);
-    let cleanup_provider =
-        cleanup_provider_for_recording(cleanup_runtime.inner(), bundled_resources.as_ref());
+    let cleanup_provider = cleanup_provider_for_recording();
 
     let process_start = Instant::now();
     let processed = process_recording(
         audio,
         state.local_model_settings(),
-        bundled_resources.as_ref(),
+        inference_manager.inner(),
         cleanup_provider.as_deref(),
     )
     .await?;
@@ -153,16 +148,6 @@ pub fn recording_status(state: State<'_, AppState>) -> &'static str {
     match state.recording_status() {
         RecordingStatus::Idle => "idle",
         RecordingStatus::Recording => "recording",
-    }
-}
-
-fn bundled_inference_resources(app: &AppHandle) -> Option<InferenceResourcePaths> {
-    match app.path().resource_dir() {
-        Ok(resource_root) => Some(InferenceResourcePaths::from_resource_root(resource_root)),
-        Err(err) => {
-            eprintln!("bundled inference resource directory unavailable: {err}");
-            None
-        }
     }
 }
 
@@ -246,7 +231,6 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::audio::AudioCaptureStats;
-    use crate::inference::resources::{CpuArchitecture, InferenceResourcePaths};
     use crate::insertion::clipboard::{
         FocusedTargetMetadata, FocusedTextTarget, InsertionDiagnostics, InsertionResult,
         InsertionStepStatus,
@@ -256,14 +240,70 @@ mod tests {
         AsrOutput, CleanupOutput, FakeTextCleanupProvider, ProviderError, TextCleanupProvider,
     };
 
-    use crate::state::LocalModelSettings;
     use crate::state::{AppState, CleanupMode, RecordingSession, RecordingStatus};
 
-    fn create_file(path: &std::path::Path) {
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create parent");
+    fn manager_for_cleanup_result(
+        result: PipelineResult,
+    ) -> crate::inference::manager::InferenceManager {
+        use crate::inference::manager::{
+            AsrEngineConfig, AsrInferenceRequest, CleanupEngineConfig, CleanupInferenceOutput,
+            ManagedInferenceEngine,
+        };
+
+        struct UnusedAsr;
+        impl
+            ManagedInferenceEngine<
+                AsrInferenceRequest,
+                crate::inference::manager::AsrInferenceOutput,
+            > for UnusedAsr
+        {
+            fn infer(
+                &mut self,
+                _payload: AsrInferenceRequest,
+            ) -> Result<
+                crate::inference::manager::AsrInferenceOutput,
+                crate::inference::manager::InferenceManagerError,
+            > {
+                unreachable!("ASR is not used by apply_cleanup_mode tests")
+            }
         }
-        std::fs::write(path, "test asset").expect("write test asset");
+
+        struct CleanupEngine {
+            result: PipelineResult,
+        }
+        impl
+            ManagedInferenceEngine<
+                crate::inference::manager::CleanupInferenceRequest,
+                CleanupInferenceOutput,
+            > for CleanupEngine
+        {
+            fn infer(
+                &mut self,
+                _payload: crate::inference::manager::CleanupInferenceRequest,
+            ) -> Result<CleanupInferenceOutput, crate::inference::manager::InferenceManagerError>
+            {
+                Ok(CleanupInferenceOutput {
+                    result: self.result.clone(),
+                })
+            }
+        }
+
+        let manager = crate::inference::manager::InferenceManager::new(
+            |_config: &AsrEngineConfig| Ok(Box::new(UnusedAsr)),
+            move |_config: &CleanupEngineConfig| {
+                Ok(Box::new(CleanupEngine {
+                    result: result.clone(),
+                }))
+            },
+        );
+        manager
+            .cleanup()
+            .arm(CleanupEngineConfig {
+                model_path: PathBuf::from("cleanup.gguf"),
+                mode: crate::inference::manager::CleanupInferenceMode::PunctuationOnly,
+            })
+            .expect("arm cleanup");
+        manager
     }
 
     #[test]
@@ -277,142 +317,6 @@ mod tests {
 
         state.cancel_recording("user_cancelled").expect("cancel");
         assert_eq!(state.recording_status(), RecordingStatus::Idle);
-    }
-
-    #[test]
-    fn configured_model_path_is_used_when_bundled_resources_are_unavailable() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let whisper_model_path = tempdir.path().join("model.bin");
-        create_file(&whisper_model_path);
-
-        let path = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: Some(whisper_model_path.display().to_string()),
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            None,
-            None,
-        )
-        .expect("resolve model path");
-
-        assert_eq!(path, whisper_model_path);
-    }
-
-    #[test]
-    fn bundled_model_path_is_used_when_settings_and_env_are_empty() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.asr_model_path);
-
-        let path = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: None,
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            Some(&resources),
-            None,
-        )
-        .expect("resolve model path");
-
-        assert_eq!(path, resources.asr_model_path);
-    }
-
-    #[test]
-    fn environment_model_path_overrides_bundled_asset() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.asr_model_path);
-
-        let path = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: None,
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            Some(&resources),
-            Some(PathBuf::from("/custom/model.bin")),
-        )
-        .expect("resolve model path");
-
-        assert_eq!(path, PathBuf::from("/custom/model.bin"));
-    }
-
-    #[test]
-    fn stale_persisted_model_setting_falls_back_to_bundled_asset() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.asr_model_path);
-
-        let path = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: Some("/missing/legacy-model.bin".to_string()),
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            Some(&resources),
-            None,
-        )
-        .expect("resolve model path");
-
-        assert_eq!(path, resources.asr_model_path);
-    }
-
-    #[test]
-    fn missing_bundled_asr_model_returns_damaged_install_error() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-
-        let error = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: None,
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            Some(&resources),
-            None,
-        )
-        .expect_err("missing bundled asset");
-
-        assert!(error.contains("Wispergo installation is missing bundled ASR assets"));
-        assert!(error.contains("models/asr/ggml-large-v3-turbo.bin"));
-        // The whisper-cli binary is no longer part of ASR resolution (sidecar retired).
-        assert!(!error.contains("whisper-cli"));
-    }
-
-    #[test]
-    fn unconfigured_asr_without_bundle_returns_configuration_error() {
-        let error = super::resolve_asr_model_path_with_sources(
-            &LocalModelSettings {
-                whisper_binary_path: None,
-                whisper_model_path: None,
-                recognition_language: crate::state::RecognitionLanguage::Auto,
-                cleanup_mode: CleanupMode::PunctuationOnly,
-            },
-            None,
-            None,
-        )
-        .expect_err("unconfigured");
-
-        assert!(error.contains("WISPERGO_WHISPER_MODEL"));
     }
 
     #[test]
@@ -490,8 +394,7 @@ mod tests {
         assert!(source.contains("wispergo timing: process_recording"));
         assert!(source.contains("cleanup_mode={:?}"));
         assert!(source.contains("recording-timings.log"));
-        assert!(source
-            .contains("CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await"));
+        assert!(source.contains("CleanupMode::Off => raw_result"));
     }
 
     #[tokio::test]
@@ -512,10 +415,16 @@ mod tests {
             source: ProviderSource::Local,
         };
 
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager unused".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
         let result = super::apply_cleanup_mode(
             asr,
             CleanupMode::PunctuationOnly,
             Some(&provider as &dyn TextCleanupProvider),
+            &manager,
         )
         .await;
 
@@ -549,10 +458,16 @@ mod tests {
             source: ProviderSource::Local,
         };
 
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager unused".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
         let result = super::apply_cleanup_mode(
             asr,
             CleanupMode::PunctuationOnly,
             Some(&provider as &dyn TextCleanupProvider),
+            &manager,
         )
         .await;
 
@@ -587,10 +502,16 @@ mod tests {
             source: ProviderSource::Local,
         };
 
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager unused".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
         let result = super::apply_cleanup_mode(
             asr,
             CleanupMode::PunctuationOnly,
             Some(&provider as &dyn TextCleanupProvider),
+            &manager,
         )
         .await;
 
@@ -612,7 +533,14 @@ mod tests {
             source: ProviderSource::Local,
         };
 
-        let result = super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None).await;
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager fallback".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
+        manager.cleanup().disable().expect("disable cleanup");
+        let result =
+            super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None, &manager).await;
 
         assert_eq!(
             result,
@@ -723,7 +651,7 @@ mod tests {
 async fn process_recording(
     audio: Vec<f32>,
     settings: LocalModelSettings,
-    bundled_resources: Option<&InferenceResourcePaths>,
+    inference_manager: &InferenceManager,
     cleanup_provider: Option<&dyn TextCleanupProvider>,
 ) -> Result<ProcessedRecording, String> {
     let total_start = Instant::now();
@@ -743,18 +671,21 @@ async fn process_recording(
     }
 
     let asr_start = Instant::now();
-    let asr = local_asr_provider(&settings, bundled_resources)?
-        .transcribe(audio)
-        .await
-        .map_err(provider_error_message)?;
+    let asr = inference_manager
+        .asr()
+        .request(AsrInferenceRequest { audio })
+        .map(asr_output_from_manager)
+        .map_err(|err| err.to_string())?;
     let asr_ms = asr_start.elapsed().as_millis();
 
     let cleanup_mode = settings.cleanup_mode;
     let cleanup_start = Instant::now();
     let result = match cleanup_mode {
-        CleanupMode::Off => apply_cleanup_mode(asr, CleanupMode::Off, None).await,
+        CleanupMode::Off => {
+            apply_cleanup_mode(asr, CleanupMode::Off, None, inference_manager).await
+        }
         CleanupMode::PunctuationOnly | CleanupMode::FullCleanup => {
-            apply_cleanup_mode(asr, cleanup_mode, cleanup_provider).await
+            apply_cleanup_mode(asr, cleanup_mode, cleanup_provider, inference_manager).await
         }
     };
     let cleanup_ms = cleanup_start.elapsed().as_millis();
@@ -785,10 +716,11 @@ async fn apply_cleanup_mode(
     asr: AsrOutput,
     cleanup_mode: CleanupMode,
     cleanup: Option<&dyn TextCleanupProvider>,
+    inference_manager: &InferenceManager,
 ) -> PipelineResult {
     let raw_result = PipelineResult::InsertText {
         text: asr.transcript.clone(),
-        source: asr.source.clone(),
+        source: asr.source,
         confidence: asr.confidence,
     };
 
@@ -798,34 +730,48 @@ async fn apply_cleanup_mode(
             if looks_reasonably_punctuated(&asr.transcript) {
                 return raw_result;
             }
-            let Some(cleanup) = cleanup else {
-                return raw_result;
-            };
-            cleanup
-                .clean_punctuation_only(CleanupInput {
+            if let Some(cleanup) = cleanup {
+                return cleanup
+                    .clean_punctuation_only(CleanupInput {
+                        transcript: asr.transcript,
+                        selected_text: None,
+                        timeout: PUNCTUATION_CLEANUP_TIMEOUT,
+                    })
+                    .await
+                    .map(|text| PipelineResult::InsertText {
+                        text,
+                        source: asr.source,
+                        confidence: asr.confidence,
+                    })
+                    .unwrap_or(raw_result);
+            }
+
+            inference_manager
+                .cleanup()
+                .request(CleanupInferenceRequest {
                     transcript: asr.transcript,
-                    selected_text: None,
-                    timeout: PUNCTUATION_CLEANUP_TIMEOUT,
                 })
-                .await
-                .map(|text| PipelineResult::InsertText {
-                    text,
-                    source: asr.source,
-                    confidence: asr.confidence,
-                })
+                .map(|output| output.result)
                 .unwrap_or(raw_result)
         }
         CleanupMode::FullCleanup => {
-            let Some(cleanup) = cleanup else {
-                return raw_result;
-            };
-            cleanup
-                .clean(CleanupInput {
+            if let Some(cleanup) = cleanup {
+                return cleanup
+                    .clean(CleanupInput {
+                        transcript: asr.transcript,
+                        selected_text: None,
+                        timeout: FULL_CLEANUP_TIMEOUT,
+                    })
+                    .await
+                    .map(|output| output.result)
+                    .unwrap_or(raw_result);
+            }
+
+            inference_manager
+                .cleanup()
+                .request(CleanupInferenceRequest {
                     transcript: asr.transcript,
-                    selected_text: None,
-                    timeout: FULL_CLEANUP_TIMEOUT,
                 })
-                .await
                 .map(|output| output.result)
                 .unwrap_or(raw_result)
         }
@@ -854,118 +800,21 @@ fn no_speech_error(capture: AudioCaptureStats) -> String {
     )
 }
 
-/// Build the in-process ASR provider for a recording.
-///
-/// Resolves the Whisper model path (env override → bundled → persisted
-/// setting) and constructs a `WhisperRsProvider` with the selected language.
-/// There is no ASR binary anymore — whisper.cpp runs in-process via
-/// `whisper-rs` (Phase 2.3 retired the `whisper-cli` sidecar).
-fn local_asr_provider(
-    settings: &LocalModelSettings,
-    bundled_resources: Option<&InferenceResourcePaths>,
-) -> Result<WhisperRsProvider, String> {
-    let model_path = resolve_asr_model_path_with_resources(settings, bundled_resources)?;
-
-    Ok(WhisperRsProvider::new(model_path)
-        .with_language(
-            settings
-                .recognition_language
-                .whisper_code()
-                .map(str::to_string),
-        )
-        .with_timeout(Duration::from_secs(30)))
-}
-
-fn resolve_asr_model_path_with_resources(
-    settings: &LocalModelSettings,
-    bundled_resources: Option<&InferenceResourcePaths>,
-) -> Result<PathBuf, String> {
-    resolve_asr_model_path_with_sources(
-        settings,
-        bundled_resources,
-        env::var_os("WISPERGO_WHISPER_MODEL").map(PathBuf::from),
-    )
-}
-
-/// Resolve the Whisper model path from, in priority order: an explicit env
-/// override, the bundled ASR model, or a persisted setting. Used directly by
-/// tests with an injected `env_model` so resolution can be exercised without
-/// touching the real environment.
-fn resolve_asr_model_path_with_sources(
-    settings: &LocalModelSettings,
-    bundled_resources: Option<&InferenceResourcePaths>,
-    env_model: Option<PathBuf>,
-) -> Result<PathBuf, String> {
-    let bundled_model_path = bundled_resources
-        .filter(|resources| resources.asr_model_path.exists())
-        .map(|resources| resources.asr_model_path.clone());
-
-    let model_path = env_model
-        .or(bundled_model_path)
-        .or_else(|| existing_settings_path(&settings.whisper_model_path));
-
-    match model_path {
-        Some(path) => Ok(path),
-        None => {
-            if let Some(resources) = bundled_resources {
-                if !resources.asr_model_path.exists() {
-                    return Err(format!(
-                        "Wispergo installation is missing bundled ASR assets: {}",
-                        format_bundled_asset_path(
-                            &resources.resource_root,
-                            &resources.asr_model_path,
-                        )
-                    ));
-                }
-            }
-            Err(
-                "Local ASR is not configured. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL."
-                    .to_string(),
-            )
-        }
+fn asr_output_from_manager(output: AsrInferenceOutput) -> AsrOutput {
+    AsrOutput {
+        transcript: output.transcript,
+        confidence: output.confidence,
+        source: output.source,
     }
 }
 
-fn format_bundled_asset_path(resource_root: &std::path::Path, path: &std::path::Path) -> String {
-    path.strip_prefix(resource_root)
-        .map(|relative| relative.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
-}
-
-fn existing_settings_path(path: &Option<String>) -> Option<PathBuf> {
-    settings_path(path).filter(|path| path.exists())
-}
-
-fn settings_path(path: &Option<String>) -> Option<PathBuf> {
-    let path = path.as_ref()?.trim();
-    if path.is_empty() {
-        None
-    } else {
-        Some(PathBuf::from(path))
-    }
-}
-
-fn cleanup_provider_for_recording(
-    cleanup_runtime: &CleanupRuntimeManager,
-    bundled_resources: Option<&InferenceResourcePaths>,
-) -> Option<Box<dyn TextCleanupProvider>> {
+fn cleanup_provider_for_recording() -> Option<Box<dyn TextCleanupProvider>> {
     if env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref() == Some("ollama") {
         return ollama_cleanup_provider()
             .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>);
     }
 
-    if cleanup_runtime.status().state != CleanupRuntimeState::Ready {
-        return None;
-    }
-
-    let model_path = bundled_resources?.cleanup_model_path.clone();
-    if !model_path.exists() {
-        return None;
-    }
-
-    Some(Box::new(LlamaCppCleanupProvider::new(
-        LlamaCppCleanupConfig::new(model_path),
-    )))
+    None
 }
 
 fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {
@@ -974,11 +823,4 @@ fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {
     let base_url = env::var("WISPERGO_OLLAMA_BASE_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
     Some(OllamaCleanupProvider::new(base_url, model))
-}
-
-fn provider_error_message(err: ProviderError) -> String {
-    match err.diagnostic_message() {
-        Some(message) if !message.trim().is_empty() => format!("{err}: {}", message.trim()),
-        _ => err.to_string(),
-    }
 }

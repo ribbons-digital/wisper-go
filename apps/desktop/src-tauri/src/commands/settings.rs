@@ -9,7 +9,10 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 
 use crate::audio::AudioInputDevice;
-use crate::inference::cleanup_runtime::{CleanupRuntimeManager, CleanupRuntimeStatus};
+use crate::inference::manager::{
+    AsrEngineConfig, CleanupEngineConfig, CleanupInferenceMode, InferenceManager,
+    InferenceRuntimeStatus,
+};
 use crate::inference::resources::InferenceResourcePaths;
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecognitionLanguage};
@@ -41,9 +44,9 @@ pub fn fallback_policy_label() -> &'static str {
 
 #[tauri::command]
 pub fn cleanup_runtime_status(
-    cleanup_runtime: State<'_, CleanupRuntimeManager>,
-) -> CleanupRuntimeStatus {
-    cleanup_runtime.status()
+    inference_manager: State<'_, InferenceManager>,
+) -> InferenceRuntimeStatus {
+    inference_manager.cleanup().status()
 }
 
 pub fn managed_cleanup_runtime_enabled(settings: &LocalModelSettings) -> bool {
@@ -60,24 +63,115 @@ fn managed_cleanup_runtime_enabled_for_backend(
     settings.cleanup_mode != CleanupMode::Off && cleanup_backend != Some("ollama")
 }
 
-pub fn sync_cleanup_runtime_for_settings(
+pub fn sync_inference_manager_for_settings(
     app: &AppHandle,
-    cleanup_runtime: &CleanupRuntimeManager,
+    inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
 ) {
-    if managed_cleanup_runtime_enabled(settings) {
-        match app.path().resource_dir() {
-            Ok(resource_root) => {
-                cleanup_runtime
-                    .start_background(InferenceResourcePaths::from_resource_root(resource_root));
-            }
-            Err(err) => {
-                eprintln!("cleanup runtime resource directory unavailable: {err}");
-                cleanup_runtime.shutdown();
+    let resources = match app.path().resource_dir() {
+        Ok(resource_root) => Some(InferenceResourcePaths::from_resource_root(resource_root)),
+        Err(err) => {
+            eprintln!("inference resource directory unavailable: {err}");
+            None
+        }
+    };
+
+    sync_asr_for_settings(inference_manager, settings, resources.as_ref());
+    sync_cleanup_for_settings(inference_manager, settings, resources.as_ref());
+}
+
+fn sync_asr_for_settings(
+    inference_manager: &InferenceManager,
+    settings: &LocalModelSettings,
+    resources: Option<&InferenceResourcePaths>,
+) {
+    match resolve_asr_model_path_for_settings(settings, resources) {
+        Ok(model_path) => {
+            if let Err(err) = inference_manager.asr().arm(AsrEngineConfig {
+                model_path,
+                language: settings
+                    .recognition_language
+                    .whisper_code()
+                    .map(str::to_string),
+            }) {
+                eprintln!("ASR inference manager arm failed: {err}");
             }
         }
-    } else {
-        cleanup_runtime.shutdown();
+        Err(message) => {
+            if let Err(err) = inference_manager.asr().mark_unavailable(message) {
+                eprintln!("ASR inference manager unavailable sync failed: {err}");
+            }
+        }
+    }
+}
+
+fn sync_cleanup_for_settings(
+    inference_manager: &InferenceManager,
+    settings: &LocalModelSettings,
+    resources: Option<&InferenceResourcePaths>,
+) {
+    if !managed_cleanup_runtime_enabled(settings) {
+        if let Err(err) = inference_manager.cleanup().disable() {
+            eprintln!("cleanup inference manager disable failed: {err}");
+        }
+        return;
+    }
+
+    let Some(resources) = resources else {
+        if let Err(err) = inference_manager
+            .cleanup()
+            .mark_unavailable("Offline punctuation assets are missing. Reinstall Wispergo.")
+        {
+            eprintln!("cleanup inference manager unavailable sync failed: {err}");
+        }
+        return;
+    };
+
+    if !resources.cleanup_model_path.exists() {
+        if let Err(err) = inference_manager
+            .cleanup()
+            .mark_unavailable("Offline punctuation assets are missing. Reinstall Wispergo.")
+        {
+            eprintln!("cleanup inference manager unavailable sync failed: {err}");
+        }
+        return;
+    }
+
+    if let Err(err) = inference_manager.cleanup().arm(CleanupEngineConfig {
+        model_path: resources.cleanup_model_path.clone(),
+        mode: match settings.cleanup_mode {
+            CleanupMode::Off => unreachable!("cleanup off handled above"),
+            CleanupMode::PunctuationOnly => CleanupInferenceMode::PunctuationOnly,
+            CleanupMode::FullCleanup => CleanupInferenceMode::FullCleanup,
+        },
+    }) {
+        eprintln!("cleanup inference manager arm failed: {err}");
+    }
+}
+
+fn resolve_asr_model_path_for_settings(
+    settings: &LocalModelSettings,
+    resources: Option<&InferenceResourcePaths>,
+) -> Result<PathBuf, String> {
+    let bundled_model_path = resources
+        .filter(|resources| resources.asr_model_path.exists())
+        .map(|resources| resources.asr_model_path.clone());
+    let settings_model_path = settings
+        .whisper_model_path
+        .as_ref()
+        .map(|path| PathBuf::from(path.trim()))
+        .filter(|path| path.exists());
+    let model_path = env::var_os("WISPERGO_WHISPER_MODEL")
+        .map(PathBuf::from)
+        .or(bundled_model_path)
+        .or(settings_model_path);
+
+    match model_path {
+        Some(path) => Ok(path),
+        None => Err(
+            "Local ASR is not configured. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL."
+                .to_string(),
+        ),
     }
 }
 
@@ -137,7 +231,7 @@ pub fn local_model_settings(state: State<'_, AppState>) -> LocalModelSettings {
 pub fn set_local_model_settings(
     app: AppHandle,
     state: State<'_, AppState>,
-    cleanup_runtime: State<'_, CleanupRuntimeManager>,
+    inference_manager: State<'_, InferenceManager>,
     settings: LocalModelSettings,
 ) -> Result<LocalModelSettings, String> {
     let previous = state.local_model_settings();
@@ -149,8 +243,8 @@ pub fn set_local_model_settings(
         settings.recognition_language,
     )
     .map_err(|err| err.to_string())?;
-    if previous.cleanup_mode != settings.cleanup_mode {
-        sync_cleanup_runtime_for_settings(&app, cleanup_runtime.inner(), &settings);
+    if previous != settings {
+        sync_inference_manager_for_settings(&app, inference_manager.inner(), &settings);
     }
     Ok(settings.to_frontend())
 }
@@ -164,6 +258,7 @@ pub fn recognition_language(state: State<'_, AppState>) -> RecognitionLanguage {
 pub fn set_recognition_language(
     app: AppHandle,
     state: State<'_, AppState>,
+    inference_manager: State<'_, InferenceManager>,
     language: RecognitionLanguage,
 ) -> Result<RecognitionLanguage, String> {
     let mut settings = state.local_model_settings();
@@ -172,6 +267,7 @@ pub fn set_recognition_language(
     save_persisted_settings(&app, &settings)?;
     app.emit(RECOGNITION_LANGUAGE_CHANGED_EVENT, language)
         .map_err(|err| err.to_string())?;
+    sync_inference_manager_for_settings(&app, inference_manager.inner(), &settings);
     Ok(language)
 }
 
@@ -393,10 +489,211 @@ fn settings_file_path(app: &AppHandle) -> Result<PathBuf, String> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
     use super::{
         managed_cleanup_runtime_enabled_for_backend, ollama_model_installed, CleanupMode,
         LocalModelSettings, OllamaSetupStatus,
     };
+    use crate::inference::manager::{
+        AsrEngineConfig, AsrInferenceOutput, AsrInferenceRequest, CleanupEngineConfig,
+        CleanupInferenceOutput, CleanupInferenceRequest, InferenceManager, InferenceManagerError,
+        InferenceRuntimeState, ManagedInferenceEngine,
+    };
+    use crate::inference::resources::{CpuArchitecture, InferenceResourcePaths};
+    use crate::state::RecognitionLanguage;
+    use wispergo_core::domain::{PipelineResult, ProviderSource};
+
+    struct TestAsrEngine {
+        config: AsrEngineConfig,
+    }
+
+    impl ManagedInferenceEngine<AsrInferenceRequest, AsrInferenceOutput> for TestAsrEngine {
+        fn infer(
+            &mut self,
+            _payload: AsrInferenceRequest,
+        ) -> Result<AsrInferenceOutput, InferenceManagerError> {
+            Ok(AsrInferenceOutput {
+                transcript: self
+                    .config
+                    .language
+                    .clone()
+                    .unwrap_or_else(|| "auto".to_string()),
+                confidence: None,
+                source: ProviderSource::Local,
+            })
+        }
+    }
+
+    struct TestCleanupEngine;
+
+    impl ManagedInferenceEngine<CleanupInferenceRequest, CleanupInferenceOutput> for TestCleanupEngine {
+        fn infer(
+            &mut self,
+            payload: CleanupInferenceRequest,
+        ) -> Result<CleanupInferenceOutput, InferenceManagerError> {
+            Ok(CleanupInferenceOutput {
+                result: PipelineResult::InsertText {
+                    text: payload.transcript,
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            })
+        }
+    }
+
+    fn create_file(path: &std::path::Path) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent");
+        }
+        std::fs::write(path, "test asset").expect("write test asset");
+    }
+
+    fn test_manager(
+        asr_loads: Arc<AtomicUsize>,
+        cleanup_loads: Arc<AtomicUsize>,
+        seen_asr_configs: Arc<Mutex<Vec<AsrEngineConfig>>>,
+    ) -> InferenceManager {
+        InferenceManager::new(
+            move |config: &AsrEngineConfig| {
+                asr_loads.fetch_add(1, Ordering::SeqCst);
+                seen_asr_configs
+                    .lock()
+                    .expect("seen asr configs")
+                    .push(config.clone());
+                Ok(Box::new(TestAsrEngine {
+                    config: config.clone(),
+                }))
+            },
+            move |_config: &CleanupEngineConfig| {
+                cleanup_loads.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(TestCleanupEngine))
+            },
+        )
+    }
+
+    #[test]
+    fn settings_sync_arms_without_loading_and_first_asr_request_loads() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+        create_file(&resources.asr_model_path);
+        create_file(&resources.cleanup_model_path);
+        let asr_loads = Arc::new(AtomicUsize::new(0));
+        let cleanup_loads = Arc::new(AtomicUsize::new(0));
+        let seen_asr_configs = Arc::new(Mutex::new(Vec::new()));
+        let manager = test_manager(
+            Arc::clone(&asr_loads),
+            Arc::clone(&cleanup_loads),
+            Arc::clone(&seen_asr_configs),
+        );
+        let settings = LocalModelSettings::default();
+
+        super::sync_asr_for_settings(&manager, &settings, Some(&resources));
+        super::sync_cleanup_for_settings(&manager, &settings, Some(&resources));
+
+        assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
+        assert_eq!(
+            manager.cleanup().status().state,
+            InferenceRuntimeState::Ready
+        );
+        assert!(!manager.asr().snapshot().loaded);
+        assert!(!manager.cleanup().snapshot().loaded);
+        assert_eq!(asr_loads.load(Ordering::SeqCst), 0);
+        assert_eq!(cleanup_loads.load(Ordering::SeqCst), 0);
+
+        let asr = manager
+            .asr()
+            .request(AsrInferenceRequest { audio: vec![0.1] })
+            .expect("asr request");
+
+        assert_eq!(asr.transcript, "auto");
+        assert_eq!(asr_loads.load(Ordering::SeqCst), 1);
+        assert!(manager.asr().snapshot().loaded);
+        manager.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn cleanup_mode_off_disables_cleanup_slot() {
+        let manager = test_manager(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::new(Mutex::new(Vec::new())),
+        );
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::Off,
+            ..LocalModelSettings::default()
+        };
+
+        super::sync_cleanup_for_settings(&manager, &settings, None);
+
+        assert_eq!(
+            manager.cleanup().status().state,
+            InferenceRuntimeState::Disabled
+        );
+        assert!(!manager.cleanup().snapshot().loaded);
+        manager.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn recognition_language_sync_rearms_asr_without_loading() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+        create_file(&resources.asr_model_path);
+        let asr_loads = Arc::new(AtomicUsize::new(0));
+        let seen_asr_configs = Arc::new(Mutex::new(Vec::new()));
+        let manager = test_manager(
+            Arc::clone(&asr_loads),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&seen_asr_configs),
+        );
+
+        super::sync_asr_for_settings(
+            &manager,
+            &LocalModelSettings {
+                recognition_language: RecognitionLanguage::En,
+                ..LocalModelSettings::default()
+            },
+            Some(&resources),
+        );
+        let first_generation = manager.asr().snapshot().generation;
+        super::sync_asr_for_settings(
+            &manager,
+            &LocalModelSettings {
+                recognition_language: RecognitionLanguage::Zh,
+                ..LocalModelSettings::default()
+            },
+            Some(&resources),
+        );
+
+        assert_eq!(manager.asr().snapshot().generation, first_generation + 1);
+        assert!(!manager.asr().snapshot().loaded);
+        assert_eq!(asr_loads.load(Ordering::SeqCst), 0);
+
+        let output = manager
+            .asr()
+            .request(AsrInferenceRequest { audio: vec![0.1] })
+            .expect("asr request");
+        assert_eq!(output.transcript, "zh");
+        assert_eq!(asr_loads.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            seen_asr_configs
+                .lock()
+                .expect("seen asr configs")
+                .last()
+                .expect("loaded config")
+                .language
+                .as_deref(),
+            Some("zh")
+        );
+        manager.shutdown().expect("shutdown");
+    }
 
     #[test]
     fn managed_cleanup_runtime_enabled_for_punctuation_without_backend_override() {

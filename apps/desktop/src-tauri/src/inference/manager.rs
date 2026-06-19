@@ -6,7 +6,17 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use wispergo_core::cleanup_inprocess::{LlamaCppCleanupConfig, LlamaCppCleanupProvider};
+use wispergo_core::domain::{PipelineResult, ProviderSource};
+use wispergo_core::providers::{
+    AsrProvider, CleanupInput, CleanupProvider, ProviderError, TextCleanupProvider,
+};
+use wispergo_core::whisper_rs_provider::WhisperRsProvider;
+
 const DEFAULT_UNAVAILABLE_MESSAGE: &str = "Inference engine is not configured.";
+const ASR_TIMEOUT: Duration = Duration::from_secs(30);
+const PUNCTUATION_CLEANUP_TIMEOUT: Duration = Duration::from_millis(1200);
+const FULL_CLEANUP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -138,6 +148,18 @@ where
         recv_unit(&self.name, reply_rx)
     }
 
+    pub fn mark_unavailable(
+        &self,
+        message: impl Into<String>,
+    ) -> Result<(), InferenceManagerError> {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.send(EngineCommand::MarkUnavailable {
+            message: message.into(),
+            reply_tx,
+        })?;
+        recv_unit(&self.name, reply_rx)
+    }
+
     pub fn request(&self, payload: P) -> Result<R, InferenceManagerError> {
         let (reply_tx, reply_rx) = mpsc::channel();
         self.send(EngineCommand::Request { payload, reply_tx })?;
@@ -225,6 +247,10 @@ pub struct InferenceManager {
 }
 
 impl InferenceManager {
+    pub fn product() -> Self {
+        Self::new(product_asr_engine, product_cleanup_engine)
+    }
+
     pub fn new<AsrFactory, CleanupFactory>(
         asr_factory: AsrFactory,
         cleanup_factory: CleanupFactory,
@@ -316,6 +342,7 @@ pub struct AsrInferenceRequest {
 pub struct AsrInferenceOutput {
     pub transcript: String,
     pub confidence: Option<f32>,
+    pub source: ProviderSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -335,9 +362,9 @@ pub struct CleanupInferenceRequest {
     pub transcript: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CleanupInferenceOutput {
-    pub cleaned_text: String,
+    pub result: PipelineResult,
 }
 
 enum EngineCommand<C, P, R> {
@@ -346,6 +373,10 @@ enum EngineCommand<C, P, R> {
         reply_tx: mpsc::Sender<Result<(), InferenceManagerError>>,
     },
     Disable {
+        reply_tx: mpsc::Sender<Result<(), InferenceManagerError>>,
+    },
+    MarkUnavailable {
+        message: String,
         reply_tx: mpsc::Sender<Result<(), InferenceManagerError>>,
     },
     Request {
@@ -412,6 +443,24 @@ fn run_worker<C, P, R>(
                         status: InferenceRuntimeStatus {
                             state: InferenceRuntimeState::Disabled,
                             message: None,
+                        },
+                        generation,
+                        loaded: false,
+                    },
+                );
+                let _ = reply_tx.send(Ok(()));
+            }
+            EngineCommand::MarkUnavailable { message, reply_tx } => {
+                generation = generation.wrapping_add(1);
+                config = None;
+                engine = None;
+                last_used = None;
+                write_snapshot(
+                    &snapshot,
+                    InferenceRuntimeSnapshot {
+                        status: InferenceRuntimeStatus {
+                            state: InferenceRuntimeState::Unavailable,
+                            message: Some(message),
                         },
                         generation,
                         loaded: false,
@@ -659,6 +708,111 @@ fn recv_unit(
         .map_err(|_| InferenceManagerError::RuntimeStopped {
             engine: engine.to_string(),
         })?
+}
+
+fn product_asr_engine(
+    config: &AsrEngineConfig,
+) -> Result<
+    Box<dyn ManagedInferenceEngine<AsrInferenceRequest, AsrInferenceOutput>>,
+    InferenceManagerError,
+> {
+    Ok(Box::new(WhisperRsManagedEngine {
+        provider: WhisperRsProvider::new(config.model_path.clone())
+            .with_language(config.language.clone())
+            .with_timeout(ASR_TIMEOUT),
+    }))
+}
+
+struct WhisperRsManagedEngine {
+    provider: WhisperRsProvider,
+}
+
+impl ManagedInferenceEngine<AsrInferenceRequest, AsrInferenceOutput> for WhisperRsManagedEngine {
+    fn infer(
+        &mut self,
+        payload: AsrInferenceRequest,
+    ) -> Result<AsrInferenceOutput, InferenceManagerError> {
+        tauri::async_runtime::block_on(self.provider.transcribe(payload.audio))
+            .map(|output| AsrInferenceOutput {
+                transcript: output.transcript,
+                confidence: output.confidence,
+                source: output.source,
+            })
+            .map_err(|err| provider_error_to_manager("asr", err))
+    }
+}
+
+fn product_cleanup_engine(
+    config: &CleanupEngineConfig,
+) -> Result<
+    Box<dyn ManagedInferenceEngine<CleanupInferenceRequest, CleanupInferenceOutput>>,
+    InferenceManagerError,
+> {
+    Ok(Box::new(LlamaCppManagedCleanupEngine {
+        provider: LlamaCppCleanupProvider::new(LlamaCppCleanupConfig::new(
+            config.model_path.clone(),
+        )),
+        mode: config.mode,
+    }))
+}
+
+struct LlamaCppManagedCleanupEngine {
+    provider: LlamaCppCleanupProvider,
+    mode: CleanupInferenceMode,
+}
+
+impl ManagedInferenceEngine<CleanupInferenceRequest, CleanupInferenceOutput>
+    for LlamaCppManagedCleanupEngine
+{
+    fn infer(
+        &mut self,
+        payload: CleanupInferenceRequest,
+    ) -> Result<CleanupInferenceOutput, InferenceManagerError> {
+        let input = CleanupInput {
+            transcript: payload.transcript,
+            selected_text: None,
+            timeout: match self.mode {
+                CleanupInferenceMode::PunctuationOnly => PUNCTUATION_CLEANUP_TIMEOUT,
+                CleanupInferenceMode::FullCleanup => FULL_CLEANUP_TIMEOUT,
+            },
+        };
+
+        match self.mode {
+            CleanupInferenceMode::PunctuationOnly => {
+                tauri::async_runtime::block_on(self.provider.clean_punctuation_only(input))
+                    .map(|text| CleanupInferenceOutput {
+                        result: PipelineResult::InsertText {
+                            text,
+                            source: ProviderSource::Local,
+                            confidence: None,
+                        },
+                    })
+                    .map_err(|err| provider_error_to_manager("cleanup", err))
+            }
+            CleanupInferenceMode::FullCleanup => {
+                tauri::async_runtime::block_on(self.provider.clean(input))
+                    .map(|output| CleanupInferenceOutput {
+                        result: output.result,
+                    })
+                    .map_err(|err| provider_error_to_manager("cleanup", err))
+            }
+        }
+    }
+}
+
+fn provider_error_to_manager(engine: &str, err: ProviderError) -> InferenceManagerError {
+    match err {
+        ProviderError::Unavailable { message, .. } => InferenceManagerError::Unavailable {
+            engine: engine.to_string(),
+            message: message.unwrap_or_else(|| "provider unavailable".to_string()),
+        },
+        ProviderError::Timeout { .. }
+        | ProviderError::Failed { .. }
+        | ProviderError::InvalidOutput { .. } => InferenceManagerError::Failed {
+            engine: engine.to_string(),
+            message: err.to_string(),
+        },
+    }
 }
 
 #[cfg(test)]
@@ -945,6 +1099,7 @@ mod tests {
                 Ok(AsrInferenceOutput {
                     transcript: format!("{} samples", payload.audio.len()),
                     confidence: None,
+                    source: ProviderSource::Local,
                 })
             }
         }
@@ -957,7 +1112,11 @@ mod tests {
                 payload: CleanupInferenceRequest,
             ) -> Result<CleanupInferenceOutput, InferenceManagerError> {
                 Ok(CleanupInferenceOutput {
-                    cleaned_text: format!("{}!", payload.transcript),
+                    result: PipelineResult::InsertText {
+                        text: format!("{}!", payload.transcript),
+                        source: ProviderSource::Local,
+                        confidence: None,
+                    },
                 })
             }
         }
@@ -998,7 +1157,14 @@ mod tests {
             .expect("cleanup request");
 
         assert_eq!(asr.transcript, "2 samples");
-        assert_eq!(cleanup.cleaned_text, "hello!");
+        assert_eq!(
+            cleanup.result,
+            PipelineResult::InsertText {
+                text: "hello!".to_string(),
+                source: ProviderSource::Local,
+                confidence: None,
+            }
+        );
         assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
         assert_eq!(
             manager.cleanup().status().state,

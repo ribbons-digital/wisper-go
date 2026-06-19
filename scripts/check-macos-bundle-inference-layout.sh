@@ -27,7 +27,6 @@ required_dirs=(
 
 required_files=(
   "bin/$current_arch/whisper-cli"
-  "bin/$current_arch/llama-server"
   "models/asr/ggml-large-v3-turbo.bin"
   "models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"
 )

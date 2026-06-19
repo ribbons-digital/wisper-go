@@ -27,7 +27,6 @@ impl CpuArchitecture {
 pub struct InferenceResourcePaths {
     pub resource_root: PathBuf,
     pub whisper_binary_path: PathBuf,
-    pub llama_server_binary_path: PathBuf,
     pub asr_model_path: PathBuf,
     pub cleanup_model_path: PathBuf,
 }
@@ -47,42 +46,12 @@ impl InferenceResourcePaths {
 
         Self {
             whisper_binary_path: bin_root.join("whisper-cli"),
-            llama_server_binary_path: bin_root.join("llama-server"),
             asr_model_path: resource_root.join("models/asr/ggml-large-v3-turbo.bin"),
             cleanup_model_path: resource_root
                 .join("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"),
             resource_root,
         }
     }
-
-    pub fn validate_required_assets(&self) -> Result<(), String> {
-        let required = [
-            &self.whisper_binary_path,
-            &self.llama_server_binary_path,
-            &self.asr_model_path,
-            &self.cleanup_model_path,
-        ];
-        let missing = required
-            .iter()
-            .filter(|path| !path.exists())
-            .map(|path| display_relative_or_absolute(&self.resource_root, path))
-            .collect::<Vec<_>>();
-
-        if missing.is_empty() {
-            Ok(())
-        } else {
-            Err(format!(
-                "Wispergo installation is missing bundled inference assets: {}",
-                missing.join(", ")
-            ))
-        }
-    }
-}
-
-fn display_relative_or_absolute(root: &PathBuf, path: &PathBuf) -> String {
-    path.strip_prefix(root)
-        .map(|relative| relative.display().to_string())
-        .unwrap_or_else(|_| path.display().to_string())
 }
 
 #[cfg(test)]
@@ -104,10 +73,6 @@ mod tests {
         assert_eq!(
             paths.whisper_binary_path,
             root.join("bin/macos-aarch64/whisper-cli")
-        );
-        assert_eq!(
-            paths.llama_server_binary_path,
-            root.join("bin/macos-aarch64/llama-server")
         );
         assert_eq!(
             paths.asr_model_path,
@@ -133,10 +98,6 @@ mod tests {
             root.join("bin/macos-x86_64/whisper-cli")
         );
         assert_eq!(
-            paths.llama_server_binary_path,
-            root.join("bin/macos-x86_64/llama-server")
-        );
-        assert_eq!(
             paths.asr_model_path,
             root.join("models/asr/ggml-large-v3-turbo.bin")
         );
@@ -144,30 +105,5 @@ mod tests {
             paths.cleanup_model_path,
             root.join("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf")
         );
-    }
-
-    #[test]
-    fn missing_resource_validation_lists_exact_missing_paths() {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("time")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("wispergo-missing-assets-{unique}"));
-        std::fs::create_dir_all(&root).expect("create root");
-        let paths = InferenceResourcePaths::from_resource_root_for_arch(
-            root.clone(),
-            CpuArchitecture::Aarch64,
-        );
-
-        let error = paths
-            .validate_required_assets()
-            .expect_err("missing assets");
-
-        assert_eq!(
-            error,
-            "Wispergo installation is missing bundled inference assets: bin/macos-aarch64/whisper-cli, bin/macos-aarch64/llama-server, models/asr/ggml-large-v3-turbo.bin, models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"
-        );
-
-        let _ = std::fs::remove_dir_all(root);
     }
 }

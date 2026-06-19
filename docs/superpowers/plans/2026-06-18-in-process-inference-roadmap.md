@@ -200,10 +200,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     tests, and ignored `WISPERGO_LLAMA_TEST_GGUF` real-GGUF integration test.
     Approved DoD refinement: no committed tiny GGUF fixture.
 
-- **3.3 Retire `llama-server` sidecar + `CleanupRuntimeManager` process layer** ⬜
-  - Remove `llama_server.rs` HTTP provider, `CleanupRuntimeCommand`,
-    `choose_local_port`, child monitor, HTTP readiness polling.
-  - DoD: no `llama-server`/`TcpListener`/`Child` references in non-test source.
+- **3.3 Retire cleanup sidecar + `CleanupRuntimeManager` process layer** ✅
+  - Remove retired HTTP provider, sidecar process command, local-port selection,
+    child monitor, and HTTP readiness polling.
+  - DoD: no retired cleanup sidecar / local-port / child-process references in
+    active app/core/README/scripts.
+  - Done: deleted `crates/wispergo-core/src/llama_server.rs` and its tests;
+    flipped `llama-cpp` on by default; changed recording to use
+    `LlamaCppCleanupProvider` for local cleanup while preserving the Ollama dev
+    override; replaced process runtime internals with a lightweight
+    `cleanup_runtime_status` bridge until Phase 4 `InferenceManager`; removed
+    cleanup sidecar binary requirements from bundle verification scripts/docs.
 
 ## Phase 4 — InferenceManager Lifecycle ⬜
 

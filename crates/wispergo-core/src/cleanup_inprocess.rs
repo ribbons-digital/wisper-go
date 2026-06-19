@@ -2,15 +2,13 @@
 //!
 //! Only compiled when the `llama-cpp` cargo feature is enabled, which builds
 //! llama.cpp via `llama-cpp-sys-2` (requires cmake + clang). It is gated off
-//! by default during the bridge state where the bundled `llama-server`
-//! sidecar remains the cleanup runtime.
+//! by default now that the cleanup sidecar has been retired.
 //!
 //! ## Slice 3.2 scope
 //!
 //! This module now contains the in-process `LlamaCppCleanupProvider` behind the
 //! existing cleanup traits. It reuses the same prompt/parsing contract as the
-//! HTTP `llama-server` bridge; the live pipeline switch plus `llama-server` and
-//! `CleanupRuntimeManager` retirement land in 3.3.
+//! former HTTP bridge; Phase 3.3 made it the product local cleanup backend.
 
 #![cfg(feature = "llama-cpp")]
 

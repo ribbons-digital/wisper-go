@@ -35,7 +35,7 @@ Product builds bundle the complete offline inference stack inside `Wispergo.app`
 
 - `whisper.cpp`
 - `ggml-large-v3-turbo` for ASR
-- `llama.cpp` `llama-server` for cleanup
+- in-process `llama-cpp-2` for cleanup
 - Qwen2.5-3B-Instruct GGUF cleanup model
 
 Normal users should not install Ollama, whisper.cpp, llama.cpp, or model files separately. If bundled cleanup is unavailable or too slow, Wispergo falls back to inserting the raw ASR transcript.
@@ -53,13 +53,6 @@ Bundled binaries and model files are **not committed to git**. Only the resource
 
 ```text
 apps/desktop/src-tauri/resources/
-  bin/
-    macos-aarch64/
-      llama-server
-      # llama.cpp dylibs required by llama-server
-    macos-x86_64/
-      llama-server
-      # llama.cpp dylibs required by llama-server
   models/
     asr/
       ggml-large-v3-turbo.bin
@@ -69,11 +62,10 @@ apps/desktop/src-tauri/resources/
 
 Download sources:
 
-- `llama-server`: llama.cpp macOS release archives from <https://github.com/ggml-org/llama.cpp/releases>
 - ASR runs in-process via `whisper-rs` (linked at build time); no `whisper-cli` binary is staged. ASR model: <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin>
-- Cleanup model: <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf>
+- Cleanup runs in-process via `llama-cpp-2` (linked at build time); no cleanup sidecar binary is staged. Cleanup model: <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf>
 
-For local Apple Silicon testing, staging only `bin/macos-aarch64/` plus both model files is enough. For release verification, stage both `macos-aarch64` and `macos-x86_64` binaries.
+For local Apple Silicon testing, staging both model files is enough. Full bundled-path cleanup is tracked in Phase 6 of the migration roadmap.
 
 Build an offline release bundle with:
 
@@ -89,12 +81,7 @@ pnpm desktop:build:offline-release
 - Rust toolchain
 - Node.js + pnpm
 - Tauri v2 dependencies
-- `cmake` and `clang` (required to build the in-process whisper.cpp ASR provider via the `whisper-rs` cargo feature; install with `brew install cmake`)
-
-> Note: the `whisper-rs` feature is off by default during the migration bridge
-> state. A plain `pnpm desktop:dev` / `pnpm desktop:build` does not require
-> cmake. It becomes required once the in-process ASR provider is the default
-> (Phase 2.3).
+- `cmake` and `clang` (required to build the in-process whisper.cpp ASR provider via `whisper-rs` and cleanup provider via `llama-cpp-2`; install with `brew install cmake`)
 
 ### Install dependencies
 

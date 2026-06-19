@@ -43,7 +43,6 @@ Normal users should not install Ollama, whisper.cpp, llama.cpp, or model files s
 Developer overrides are available for debugging and experimentation:
 
 ```bash
-export WISPERGO_WHISPER_BIN=/path/to/whisper-cli
 export WISPERGO_WHISPER_MODEL=/path/to/ggml-large-v3-turbo.bin
 export WISPERGO_CLEANUP_BACKEND=ollama
 export WISPERGO_OLLAMA_BASE_URL=http://127.0.0.1:11434
@@ -56,11 +55,9 @@ Bundled binaries and model files are **not committed to git**. Only the resource
 apps/desktop/src-tauri/resources/
   bin/
     macos-aarch64/
-      whisper-cli
       llama-server
       # llama.cpp dylibs required by llama-server
     macos-x86_64/
-      whisper-cli
       llama-server
       # llama.cpp dylibs required by llama-server
   models/
@@ -73,8 +70,7 @@ apps/desktop/src-tauri/resources/
 Download sources:
 
 - `llama-server`: llama.cpp macOS release archives from <https://github.com/ggml-org/llama.cpp/releases>
-- `whisper-cli`: build/download a whisper.cpp CLI binary for each target architecture
-- ASR model: <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin>
+- ASR runs in-process via `whisper-rs` (linked at build time); no `whisper-cli` binary is staged. ASR model: <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin>
 - Cleanup model: <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf>
 
 For local Apple Silicon testing, staging only `bin/macos-aarch64/` plus both model files is enough. For release verification, stage both `macos-aarch64` and `macos-x86_64` binaries.
@@ -180,7 +176,7 @@ Core runtime flow:
 
 1. Global shortcut starts/stops recording.
 2. Desktop app captures microphone audio.
-3. Audio is trimmed and sent to the bundled Whisper sidecar.
+3. Audio is trimmed and transcribed in-process via whisper.cpp (linked via `whisper-rs`).
 4. Cleanup mode decides whether to skip cleanup, run punctuation-only bundled cleanup, or run full bundled cleanup/classification.
 5. Result is inserted into the focused app or copied when insertion is unavailable.
 

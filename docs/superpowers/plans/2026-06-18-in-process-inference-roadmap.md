@@ -98,7 +98,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 > via the old sidecars reading assets from app-support instead of the bundle.
 > This keeps the app functional while the engine migrates.
 
-## Phase 2 — In-Process ASR 🟡
+## Phase 2 — In-Process ASR ✅
 
 - **2.1 Integrate `whisper-rs`, Metal feature, build pipeline** ✅
   - Add dependency, pin version, get a clean arm64 release build with Metal.
@@ -142,11 +142,29 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     duration, serializing transcriptions — intentional for single-user
     dictation; Phase 4 `InferenceManager` owns idle-unload, not parallelism.
 
-- **2.3 Retire `whisper-cli` sidecar** ⬜
+- **2.3 Retire `whisper-cli` sidecar** ✅
   - Remove `WhisperSidecarProvider` and `whisper-cli` from the manifest/resource
     paths. Keep the `AsrProvider` trait and `WISPERGO_WHISPER_*` env overrides
     as a dev escape hatch only.
   - DoD: no `whisper-cli` references in non-test source; tests green.
+  - Done: deleted `crates/wispergo-core/src/whisper_sidecar.rs` and
+    `tests/whisper_sidecar_tests.rs` entirely (sole maintainer/user — no dark
+    fallback kept). Flipped the `whisper-rs` cargo feature ON by default in
+    `wispergo-core` (`default = ["whisper-rs"]`), so every build (incl. core
+    tests) now requires cmake + clang. Removed the `#![cfg(feature)]` gate from
+    `whisper_rs_provider.rs`. Rewrote `commands/recording.rs`: `local_asr_provider`
+    now returns `WhisperRsProvider`; `AsrPaths { binary_path, model_path }`
+    collapsed to a single model-path resolver (`resolve_asr_model_path_*`);
+    `find_in_path` + `WISPERGO_WHISPER_BIN` removed. Rewrote 7 sidecar path
+    tests as 6 model-path-only tests. README: dropped `whisper-cli` from
+    staging and env-override docs; noted ASR runs in-process.
+  - **Deferred to Phase 5 (documented)**: the dictation-readiness gate (block
+    dictation until the ASR default asset is downloaded). The in-process
+    provider still reads the **bundled** model path; the gate + app-support
+    path swap lands in Phase 5 when the manifest is populated with real assets.
+    Gating now (empty manifest) would break all dictation.
+  - `LocalModelSettings.whisper_binary_path` field left in place (unused by
+    ASR now); full settings-shape cleanup is Phase 6.
 
 ## Phase 3 — In-Process Cleanup ⬜
 

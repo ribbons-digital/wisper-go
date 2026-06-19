@@ -225,6 +225,183 @@ fn current_timestamp_ms() -> u128 {
         .unwrap_or_default()
 }
 
+async fn process_recording(
+    audio: Vec<f32>,
+    settings: LocalModelSettings,
+    inference_manager: &InferenceManager,
+    cleanup_provider: Option<&dyn TextCleanupProvider>,
+) -> Result<ProcessedRecording, String> {
+    let total_start = Instant::now();
+    let capture_start = Instant::now();
+    let capture = capture_stats(&audio);
+    let capture_ms = capture_start.elapsed().as_millis();
+    eprintln!(
+        "wispergo audio capture: samples={} duration_ms={} peak={:.4} rms={:.4}",
+        capture.sample_count, capture.duration_ms, capture.peak, capture.rms
+    );
+
+    let trim_start = Instant::now();
+    let audio = trim_silence(&audio, dictation_vad_config());
+    let trim_ms = trim_start.elapsed().as_millis();
+    if audio.is_empty() {
+        return Err(no_speech_error(capture));
+    }
+
+    let asr_start = Instant::now();
+    let asr = inference_manager
+        .asr()
+        .request(AsrInferenceRequest { audio })
+        .map(asr_output_from_manager)
+        .map_err(|err| err.to_string())?;
+    let asr_ms = asr_start.elapsed().as_millis();
+
+    let cleanup_mode = settings.cleanup_mode;
+    let cleanup_start = Instant::now();
+    let result = match cleanup_mode {
+        CleanupMode::Off => {
+            apply_cleanup_mode(asr, CleanupMode::Off, None, inference_manager).await
+        }
+        CleanupMode::PunctuationOnly | CleanupMode::FullCleanup => {
+            apply_cleanup_mode(asr, cleanup_mode, cleanup_provider, inference_manager).await
+        }
+    };
+    let cleanup_ms = cleanup_start.elapsed().as_millis();
+    let total_ms = total_start.elapsed().as_millis();
+    eprintln!(
+        "wispergo timing: process_recording capture_ms={} trim_ms={} asr_ms={} cleanup_ms={} total_ms={} cleanup_mode={:?}",
+        capture_ms, trim_ms, asr_ms, cleanup_ms, total_ms, cleanup_mode
+    );
+
+    Ok(ProcessedRecording {
+        result,
+        timings: ProcessRecordingTimings {
+            sample_count: capture.sample_count,
+            duration_ms: capture.duration_ms,
+            peak: capture.peak,
+            rms: capture.rms,
+            capture_ms,
+            trim_ms,
+            asr_ms,
+            cleanup_ms,
+            total_ms,
+            cleanup_mode,
+        },
+    })
+}
+
+async fn apply_cleanup_mode(
+    asr: AsrOutput,
+    cleanup_mode: CleanupMode,
+    cleanup: Option<&dyn TextCleanupProvider>,
+    inference_manager: &InferenceManager,
+) -> PipelineResult {
+    let raw_result = PipelineResult::InsertText {
+        text: asr.transcript.clone(),
+        source: asr.source,
+        confidence: asr.confidence,
+    };
+
+    match cleanup_mode {
+        CleanupMode::Off => raw_result,
+        CleanupMode::PunctuationOnly => {
+            if looks_reasonably_punctuated(&asr.transcript) {
+                return raw_result;
+            }
+            if let Some(cleanup) = cleanup {
+                return cleanup
+                    .clean_punctuation_only(CleanupInput {
+                        transcript: asr.transcript,
+                        selected_text: None,
+                        timeout: PUNCTUATION_CLEANUP_TIMEOUT,
+                    })
+                    .await
+                    .map(|text| PipelineResult::InsertText {
+                        text,
+                        source: asr.source,
+                        confidence: asr.confidence,
+                    })
+                    .unwrap_or(raw_result);
+            }
+
+            inference_manager
+                .cleanup()
+                .request(CleanupInferenceRequest {
+                    transcript: asr.transcript,
+                })
+                .map(|output| output.result)
+                .unwrap_or(raw_result)
+        }
+        CleanupMode::FullCleanup => {
+            if let Some(cleanup) = cleanup {
+                return cleanup
+                    .clean(CleanupInput {
+                        transcript: asr.transcript,
+                        selected_text: None,
+                        timeout: FULL_CLEANUP_TIMEOUT,
+                    })
+                    .await
+                    .map(|output| output.result)
+                    .unwrap_or(raw_result);
+            }
+
+            inference_manager
+                .cleanup()
+                .request(CleanupInferenceRequest {
+                    transcript: asr.transcript,
+                })
+                .map(|output| output.result)
+                .unwrap_or(raw_result)
+        }
+    }
+}
+
+fn looks_reasonably_punctuated(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    trimmed.ends_with(['.', '!', '?', '。', '！', '？'])
+}
+
+fn dictation_vad_config() -> VadConfig {
+    VadConfig::dictation()
+}
+
+fn no_speech_error(capture: AudioCaptureStats) -> String {
+    if capture.sample_count == 0 {
+        return "No microphone audio was captured. Check microphone permission and the selected input device.".to_string();
+    }
+
+    format!(
+        "No speech was detected in the microphone audio. Captured {:.1}s with peak {:.4} and RMS {:.4}; check the selected input device and input level.",
+        capture.duration_ms as f32 / 1_000.0,
+        capture.peak,
+        capture.rms
+    )
+}
+
+fn asr_output_from_manager(output: AsrInferenceOutput) -> AsrOutput {
+    AsrOutput {
+        transcript: output.transcript,
+        confidence: output.confidence,
+        source: output.source,
+    }
+}
+
+fn cleanup_provider_for_recording() -> Option<Box<dyn TextCleanupProvider>> {
+    if env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref() == Some("ollama") {
+        return ollama_cleanup_provider()
+            .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>);
+    }
+
+    None
+}
+
+fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {
+    let model =
+        env::var("WISPERGO_OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_string());
+    let base_url = env::var("WISPERGO_OLLAMA_BASE_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
+    Some(OllamaCleanupProvider::new(base_url, model))
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -646,181 +823,4 @@ mod tests {
         assert!(quiet_error.contains("Captured 1.0s"));
         assert!(quiet_error.contains("peak 0.0010"));
     }
-}
-
-async fn process_recording(
-    audio: Vec<f32>,
-    settings: LocalModelSettings,
-    inference_manager: &InferenceManager,
-    cleanup_provider: Option<&dyn TextCleanupProvider>,
-) -> Result<ProcessedRecording, String> {
-    let total_start = Instant::now();
-    let capture_start = Instant::now();
-    let capture = capture_stats(&audio);
-    let capture_ms = capture_start.elapsed().as_millis();
-    eprintln!(
-        "wispergo audio capture: samples={} duration_ms={} peak={:.4} rms={:.4}",
-        capture.sample_count, capture.duration_ms, capture.peak, capture.rms
-    );
-
-    let trim_start = Instant::now();
-    let audio = trim_silence(&audio, dictation_vad_config());
-    let trim_ms = trim_start.elapsed().as_millis();
-    if audio.is_empty() {
-        return Err(no_speech_error(capture));
-    }
-
-    let asr_start = Instant::now();
-    let asr = inference_manager
-        .asr()
-        .request(AsrInferenceRequest { audio })
-        .map(asr_output_from_manager)
-        .map_err(|err| err.to_string())?;
-    let asr_ms = asr_start.elapsed().as_millis();
-
-    let cleanup_mode = settings.cleanup_mode;
-    let cleanup_start = Instant::now();
-    let result = match cleanup_mode {
-        CleanupMode::Off => {
-            apply_cleanup_mode(asr, CleanupMode::Off, None, inference_manager).await
-        }
-        CleanupMode::PunctuationOnly | CleanupMode::FullCleanup => {
-            apply_cleanup_mode(asr, cleanup_mode, cleanup_provider, inference_manager).await
-        }
-    };
-    let cleanup_ms = cleanup_start.elapsed().as_millis();
-    let total_ms = total_start.elapsed().as_millis();
-    eprintln!(
-        "wispergo timing: process_recording capture_ms={} trim_ms={} asr_ms={} cleanup_ms={} total_ms={} cleanup_mode={:?}",
-        capture_ms, trim_ms, asr_ms, cleanup_ms, total_ms, cleanup_mode
-    );
-
-    Ok(ProcessedRecording {
-        result,
-        timings: ProcessRecordingTimings {
-            sample_count: capture.sample_count,
-            duration_ms: capture.duration_ms,
-            peak: capture.peak,
-            rms: capture.rms,
-            capture_ms,
-            trim_ms,
-            asr_ms,
-            cleanup_ms,
-            total_ms,
-            cleanup_mode,
-        },
-    })
-}
-
-async fn apply_cleanup_mode(
-    asr: AsrOutput,
-    cleanup_mode: CleanupMode,
-    cleanup: Option<&dyn TextCleanupProvider>,
-    inference_manager: &InferenceManager,
-) -> PipelineResult {
-    let raw_result = PipelineResult::InsertText {
-        text: asr.transcript.clone(),
-        source: asr.source,
-        confidence: asr.confidence,
-    };
-
-    match cleanup_mode {
-        CleanupMode::Off => raw_result,
-        CleanupMode::PunctuationOnly => {
-            if looks_reasonably_punctuated(&asr.transcript) {
-                return raw_result;
-            }
-            if let Some(cleanup) = cleanup {
-                return cleanup
-                    .clean_punctuation_only(CleanupInput {
-                        transcript: asr.transcript,
-                        selected_text: None,
-                        timeout: PUNCTUATION_CLEANUP_TIMEOUT,
-                    })
-                    .await
-                    .map(|text| PipelineResult::InsertText {
-                        text,
-                        source: asr.source,
-                        confidence: asr.confidence,
-                    })
-                    .unwrap_or(raw_result);
-            }
-
-            inference_manager
-                .cleanup()
-                .request(CleanupInferenceRequest {
-                    transcript: asr.transcript,
-                })
-                .map(|output| output.result)
-                .unwrap_or(raw_result)
-        }
-        CleanupMode::FullCleanup => {
-            if let Some(cleanup) = cleanup {
-                return cleanup
-                    .clean(CleanupInput {
-                        transcript: asr.transcript,
-                        selected_text: None,
-                        timeout: FULL_CLEANUP_TIMEOUT,
-                    })
-                    .await
-                    .map(|output| output.result)
-                    .unwrap_or(raw_result);
-            }
-
-            inference_manager
-                .cleanup()
-                .request(CleanupInferenceRequest {
-                    transcript: asr.transcript,
-                })
-                .map(|output| output.result)
-                .unwrap_or(raw_result)
-        }
-    }
-}
-
-fn looks_reasonably_punctuated(text: &str) -> bool {
-    let trimmed = text.trim_end();
-    trimmed.ends_with(['.', '!', '?', '。', '！', '？'])
-}
-
-fn dictation_vad_config() -> VadConfig {
-    VadConfig::dictation()
-}
-
-fn no_speech_error(capture: AudioCaptureStats) -> String {
-    if capture.sample_count == 0 {
-        return "No microphone audio was captured. Check microphone permission and the selected input device.".to_string();
-    }
-
-    format!(
-        "No speech was detected in the microphone audio. Captured {:.1}s with peak {:.4} and RMS {:.4}; check the selected input device and input level.",
-        capture.duration_ms as f32 / 1_000.0,
-        capture.peak,
-        capture.rms
-    )
-}
-
-fn asr_output_from_manager(output: AsrInferenceOutput) -> AsrOutput {
-    AsrOutput {
-        transcript: output.transcript,
-        confidence: output.confidence,
-        source: output.source,
-    }
-}
-
-fn cleanup_provider_for_recording() -> Option<Box<dyn TextCleanupProvider>> {
-    if env::var("WISPERGO_CLEANUP_BACKEND").ok().as_deref() == Some("ollama") {
-        return ollama_cleanup_provider()
-            .map(|provider| Box::new(provider) as Box<dyn TextCleanupProvider>);
-    }
-
-    None
-}
-
-fn ollama_cleanup_provider() -> Option<OllamaCleanupProvider> {
-    let model =
-        env::var("WISPERGO_OLLAMA_MODEL").unwrap_or_else(|_| DEFAULT_OLLAMA_MODEL.to_string());
-    let base_url = env::var("WISPERGO_OLLAMA_BASE_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
-    Some(OllamaCleanupProvider::new(base_url, model))
 }

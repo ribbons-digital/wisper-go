@@ -15,6 +15,7 @@ tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "time"] }
 whisper-rs = { version = "0.16", optional = true }
+llama-cpp-2 = { version = "0.1.146", optional = true }
 
 [features]
 ## In-process whisper.cpp ASR provider (Phase 2). Builds whisper.cpp via
@@ -23,12 +24,20 @@ whisper-rs = { version = "0.16", optional = true }
 ## is the product ASR; the whisper-cli sidecar has been retired.
 whisper-rs = ["dep:whisper-rs"]
 
+## In-process llama.cpp cleanup provider (Phase 3). Builds llama.cpp via
+## llama-cpp-sys-2 (requires cmake + clang). Metal on Apple Silicon, CPU-only
+## elsewhere. OFF by default during the bridge state where the bundled
+## `llama-server` sidecar is still the cleanup runtime; flips on by default in
+## Phase 3.3 when the sidecar is retired.
+llama-cpp = ["dep:llama-cpp-2"]
+
 default = ["whisper-rs"]
 
 # Apple Silicon: enable Metal acceleration.
 # Intel Macs and other targets fall back to the CPU build (no metal feature).
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 whisper-rs = { version = "0.16", optional = true, features = ["metal"] }
+llama-cpp-2 = { version = "0.1.146", optional = true, features = ["metal"] }
 
 [dev-dependencies]
 httpmock = "0.7"

@@ -166,11 +166,21 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - `LocalModelSettings.whisper_binary_path` field left in place (unused by
     ASR now); full settings-shape cleanup is Phase 6.
 
-## Phase 3 — In-Process Cleanup ⬜
+## Phase 3 — In-Process Cleanup 🟡
 
-- **3.1 Integrate `llama-cpp-2`, pinned version, Metal build** ⬜
+- **3.1 Integrate `llama-cpp-2`, pinned version, Metal build** ✅
   - Add dependency, pin, clean arm64 release build.
   - DoD: build succeeds; version pinned in `Cargo.toml`.
+  - Done: pinned `llama-cpp-2 = "0.1.146"` (latest, 2026-04-30, not yanked, 628k
+    downloads) as an **optional** cargo feature `llama-cpp` in `wispergo-core`,
+    OFF by default (cleanup is still sidecar-based via `llama-server` until 3.3).
+    `metal` via target-cfg on Apple Silicon; CPU elsewhere. Placeholder
+    `cleanup_inprocess` module + smoke test. Probed in an isolated temp crate
+    first (mirroring 2.1). Verified: clean arm64 release build with Metal (40s),
+    smoke test passes, clippy clean both ways, default build unchanged.
+  - Stop-rule outcome: 0.1.146 built cleanly first try; no re-pin needed.
+    (`llama-cpp-sys-2` resolved to 0.1.150 transitively — the safe crate's
+    `^0.1.146` permits it; normal for this fast-moving crate.)
 
 - **3.2 `LlamaCppCleanupProvider` behind existing traits** ⬜
   - New provider implementing `TextCleanupProvider` + `CleanupProvider` using

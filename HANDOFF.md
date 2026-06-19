@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated after Phase 3.1 merge)
-**Next session focus:** Continue the roadmap — kick off **Phase 3.2 (`LlamaCppCleanupProvider` behind existing traits)**, using the `librarian` skill first to research the `llama-cpp-2` model-load + completion API.
+**Date:** 2026-06-19 (updated after Phase 3.2 verification)
+**Next session focus:** Commit/push/open PR for completed **Phase 3.2 (`LlamaCppCleanupProvider` behind existing traits)** on branch `phase-3-2-llama-cpp-cleanup-provider`, then wait for user merge. After merge, scope Phase 3.3 (`llama-server` sidecar + `CleanupRuntimeManager` retirement). Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -9,7 +9,8 @@
 
 - **Phase 2 (In-Process ASR) is complete and merged** (PR #7). The `whisper-cli` sidecar is deleted; `whisper-rs` is the default ASR.
 - **Phase 3.1 is complete and merged** (PR #8): `llama-cpp-2` pinned at 0.1.146 as an optional, off-by-default `llama-cpp` cargo feature; Metal build verified on arm64.
-- **Local `main` is in sync** with `origin/main` as of this update.
+- **Phase 3.2 is implemented and verified locally** on branch `phase-3-2-llama-cpp-cleanup-provider`: `LlamaCppCleanupProvider` exists behind the existing traits/feature, with shared prompt/parsing contract and approved fake-seam + ignored real-GGUF test strategy.
+- **Local `main` was in sync** with `origin/main` as of the Phase 3.1 handoff; current work is now on feature branch `phase-3-2-llama-cpp-cleanup-provider`.
 
 ## The work, in one paragraph
 
@@ -18,6 +19,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 ## Authoritative artifacts (read these, don't re-derive)
 
 - **Roadmap (source of truth for what's next):** `docs/superpowers/plans/2026-06-18-in-process-inference-roadmap.md` — every slice has a ✅/🟡/⬜ status and DoD. Check statuses here before starting.
+- **Phase 3.2 API research:** `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md` — pinned `llama-cpp-2 = 0.1.146` API findings with exact permalinks. This replaces the old instruction to run `librarian`.
+- **Phase 3.2 design draft:** `docs/superpowers/specs/2026-06-19-llama-cpp-cleanup-provider-3-2-design.md` — review/approve this before implementation.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -31,7 +34,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 0 Foundations (manifest + storage) | ✅ | PRs #1 |
 | 1 Asset Downloader (core + command + integrity) | ✅ | PRs #2, #3, #4 |
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
-| 3 In-Process Cleanup | 🟡 (3.1 done, 3.2/3.3 next) | PR #8 |
+| 3 In-Process Cleanup | 🟡 (3.1 done, 3.2 implemented locally, 3.3 next after PR merge) | PR #8 |
 | 4 InferenceManager lifecycle | ⬜ | — |
 | 5 Model tiering + readiness gate | ⬜ | — |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
@@ -54,14 +57,11 @@ From `AGENTS.md` and the user's documented workflow:
 
 **DoD (from roadmap):** New provider implementing `TextCleanupProvider` + `CleanupProvider` using the **same prompt contract** as `crates/wispergo-core/src/llama_server.rs` (reuse `punctuation_system_prompt`, `cleanup_system_prompt`, `parse_punctuation_cleanup_text`, `parse_cleanup_json` verbatim — only transport changes from HTTP to in-process completion). Provider tests with a tiny GGUF fixture; prompt-output parsing reuses the existing parsers.
 
-**Before writing code:** use the **`librarian` skill** to research the `llama-cpp-2` API specifics — it's markedly less documented than `whisper-rs`. Specifically need:
-- How to load a model from a GGUF path (`ModelParams` / `LlamaModel::load_from_file` or equivalent)
-- How to create a context (`ContextParams`, `LlamaContext`)
-- How to apply a chat template + run completion (`apply_chat_template` / `LlamaBatch` / sampling)
-- How to extract the generated text
-- Whether there's a simpler high-level completion path or if we must drive batches manually
+**Research status:** Complete and saved in `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md`. Key findings: no high-level completion helper; use backend → model → context → chat template → tokenization → `LlamaBatch` decode loop → greedy sampling → `token_to_piece`; stop on `model.is_eog_token(token)`. `LlamaContext<'a>` borrows `LlamaModel`, which is the main ownership-design risk.
 
-The `examples/simple` in `utilityai/llama-cpp-rs` is the reference implementation — `librarian` should find it and cite exact lines.
+**Design status:** Approved by the user on 2026-06-19 in `docs/superpowers/specs/2026-06-19-llama-cpp-cleanup-provider-3-2-design.md`. Approved choices: extract shared prompt/parsing contract to a new module, use a per-request local llama engine for 3.2 to avoid unsafe/self-referential ownership, defer persistent lifecycle/perf to Phase 4, and refine the tiny-GGUF test DoD to CI fake-seam tests plus an ignored `WISPERGO_LLAMA_TEST_GGUF` integration test.
+
+**Implementation status:** Branch `phase-3-2-llama-cpp-cleanup-provider` is implemented and verified locally. Shared `cleanup_prompt` extraction is complete; `llama_server.rs` and `ollama.rs` reuse it; `LlamaCppCleanupProvider` implements `TextCleanupProvider` + `CleanupProvider` behind `llama-cpp`; the real local llama.cpp engine constructor compiles; and the ignored `WISPERGO_LLAMA_TEST_GGUF` integration test exists.
 
 **3.3 will mirror 2.3's decisions** (sole maintainer/user context applies again): likely delete `llama_server.rs` + the `CleanupRuntimeManager` process lifecycle outright rather than keep a dark fallback, and flip the `llama-cpp` feature on by default. **Confirm with the user at the 3.3 scoping point** before assuming — they may want a different call for cleanup than ASR.
 
@@ -93,7 +93,7 @@ PR #7 changed the **live runtime ASR path**. CI/tests pass but no model binary r
 - **`spec-driven-coding-pair`** — general slice execution against the roadmap/spec.
 - **`writing-plans`** — only if a slice grows beyond what the roadmap's DoD captures; the roadmap is already detailed.
 - **`verification-before-completion`** — before every PR; the shippability gate is non-negotiable.
-- **`librarian`** — for `llama-cpp-2` API specifics in 3.2 (in-process completion API, model loading, chat template). It's a less-documented crate than `whisper-rs`; the librarian skill will save time vs. guessing.
+- **Do not use `librarian` for now** — its web approval/curator flow broke Pi's prompt interface in this project. The needed `llama-cpp-2` research is already saved in `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md`; use that doc plus direct repo/source inspection instead.
 - **`handoff`** — at the end of the next session, write the next one of these.
 
 ## Quick orientation commands for a fresh agent

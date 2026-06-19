@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated after Phase 4.1 local verification)
-**Next session focus:** Commit/push/open PR for completed **Phase 4.1 `InferenceManager` lifecycle core** on branch `phase-4-1-inference-manager-lifecycle`, then wait for user merge. After merge, sync main/clean branch and scope Phase 4.2 recording/settings wiring. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-19 (updated after Phase 4.2 local verification)
+**Next session focus:** Commit/push/open PR for completed **Phase 4.2 `InferenceManager` recording/settings wiring** on branch `phase-4-2-inference-manager-wiring`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5 model tiering. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -11,7 +11,9 @@
 - **Phase 3.1 is complete and merged** (PR #8): `llama-cpp-2` pinned at 0.1.146 as an optional, off-by-default `llama-cpp` cargo feature; Metal build verified on arm64.
 - **Phase 3.2 is complete and merged** (PR #9): `LlamaCppCleanupProvider` exists behind the existing traits/feature, with shared prompt/parsing contract and approved fake-seam + ignored real-GGUF test strategy.
 - **Phase 3.3 is complete and merged** (PR #10): cleanup sidecar path is deleted, `llama-cpp` is on by default, recording uses `LlamaCppCleanupProvider`, and `cleanup_runtime_status` is now a lightweight bridge until Phase 4.
-- **Local `main` was in sync** with `origin/main` after PR #10; current work is on feature branch `phase-4-1-inference-manager-lifecycle`.
+- **Phase 4.1 is complete and merged** (PR #11): desktop `InferenceManager` lifecycle core exists with dedicated worker threads, fake-engine tests, lazy-load, idle unload, generation guard, and panic/failure reload-on-next-request behavior.
+- **Phase 4.2 is implemented and verified locally** on branch `phase-4-2-inference-manager-wiring`: recording/settings now use `InferenceManager`, the temporary `CleanupRuntimeManager` bridge is removed, `cleanup_runtime_status` remains frontend-compatible, and tests cover the manager wiring behavior.
+- **Local `main` was in sync** with `origin/main` after PR #11; current work is on feature branch `phase-4-2-inference-manager-wiring`.
 
 ## The work, in one paragraph
 
@@ -23,7 +25,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Phase 3.2 API research:** `docs/superpowers/research/2026-06-19-llama-cpp-2-api-research.md` — pinned `llama-cpp-2 = 0.1.146` API findings with exact permalinks. This replaces the old instruction to run `librarian`.
 - **Phase 3.2 design:** `docs/superpowers/specs/2026-06-19-llama-cpp-cleanup-provider-3-2-design.md` — approved and implemented in PR #9.
 - **Phase 3.3 design:** `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md` — approved and implemented in PR #10.
-- **Phase 4 design:** `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md` — approved by user; Phase 4.1 implemented locally.
+- **Phase 4 design:** `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md` — approved by user; Phase 4.1 implemented in PR #11.
+- **Phase 4.2 design:** `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md` — approved by user; Phase 4.2 implemented locally.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -72,11 +75,17 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #10. Deleted the retired HTTP cleanup provider and tests; flipped `llama-cpp` on by default; changed recording to use `LlamaCppCleanupProvider` for local cleanup while preserving the Ollama dev override; replaced process runtime internals with a lightweight `cleanup_runtime_status` bridge; removed cleanup sidecar binary checks from scripts/README.
 
-## Current slice: Phase 4.1 — `InferenceManager` lifecycle core
+## Recently completed slice: Phase 4.1 — `InferenceManager` lifecycle core
 
 **Design status:** Approved in `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md`.
 
-**Implementation status:** Implemented and verified locally on branch `phase-4-1-inference-manager-lifecycle`. Added `apps/desktop/src-tauri/src/inference/manager.rs` with dedicated per-engine worker threads, command channels, lazy-load-on-request, idle unload, generation-guarded stale unload protection, failure/panic unload, reload-on-next-request, fake-engine tests, and ASR + cleanup slots. No recording/settings wiring yet; Phase 4.2 owns live integration.
+**Implementation status:** Merged in PR #11. Added `apps/desktop/src-tauri/src/inference/manager.rs` with dedicated per-engine worker threads, command channels, lazy-load-on-request, idle unload, generation-guarded stale unload protection, failure/panic unload, reload-on-next-request, fake-engine tests, and ASR + cleanup slots.
+
+## Current slice: Phase 4.2 — `InferenceManager` recording/settings wiring
+
+**Design status:** Approved in `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md`.
+
+**Implementation status:** Implemented and verified locally on branch `phase-4-2-inference-manager-wiring`. Removed `apps/desktop/src-tauri/src/inference/cleanup_runtime.rs`; app setup now manages `InferenceManager::product()` and arms it after settings load; settings sync arms ASR/cleanup and re-arms ASR on recognition-language changes; recording routes ASR and local cleanup through the manager; Ollama override still bypasses local cleanup; cleanup manager errors still fall back to raw ASR; frontend `cleanup_runtime_status` command remains stable.
 
 ## Key gotchas learned this run (save yourself the time)
 

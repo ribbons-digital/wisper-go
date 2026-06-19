@@ -214,22 +214,31 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
 ## Phase 4 — InferenceManager Lifecycle ⬜
 
-- **4.1 Lazy-load + idle-unload state machine** ✅ locally complete (PR needed)
+- **4.1 Lazy-load + idle-unload state machine** ✅
   - New `InferenceManager` lifecycle core for ASR and cleanup slots. Same
     frontend-compatible states. Lazy load on first request; idle unload;
     generation-guarded stale unload protection; reload-on-next-request after
     failure.
-  - Done locally: added `apps/desktop/src-tauri/src/inference/manager.rs` with
-    dedicated per-engine worker threads, command channels, fake-engine state
-    transition tests, `catch_unwind` panic guards, idle unload tests, and ASR +
-    cleanup manager slots. No recording/settings wiring yet; 4.2 owns that.
+  - Done in PR #11: added `apps/desktop/src-tauri/src/inference/manager.rs`
+    with dedicated per-engine worker threads, command channels, fake-engine
+    state transition tests, `catch_unwind` panic guards, idle unload tests, and
+    ASR + cleanup manager slots. No recording/settings wiring yet; 4.2 owns
+    that.
   - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md`.
 
-- **4.2 Wire `sync_cleanup_runtime_for_settings` → `InferenceManager`** ⬜
-  - "Arm, don't load" at setup; first dictation triggers load. Settings change
-    (Cleanup Mode, model id) routes through the manager.
-  - DoD: integration test that no model loads at launch; loads on first
-    dictation; unloads after idle.
+- **4.2 Wire recording/settings → `InferenceManager`** ✅ locally complete (PR needed)
+  - "Arm, don't load" at setup; first dictation triggers ASR load. Settings
+    changes route through the manager. Local cleanup loads only when Cleanup
+    Mode is not Off and Ollama override is absent.
+  - Done locally: removed the temporary `CleanupRuntimeManager` bridge; kept the
+    frontend `cleanup_runtime_status` command stable; app setup and settings
+    sync now arm/disable `InferenceManager`; recording requests ASR and local
+    cleanup through the manager; Ollama override still bypasses local cleanup;
+    cleanup errors still fall back to raw ASR.
+  - Tests added/updated for no-load-at-sync, first-request-loads, Cleanup Mode
+    Off disables cleanup, cleanup fallback, Ollama override, and recognition
+    language re-arm.
+  - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md`.
 
 ## Phase 5 — Model Tiering ⬜
 

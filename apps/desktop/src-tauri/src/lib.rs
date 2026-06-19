@@ -19,9 +19,9 @@ use commands::settings::{
     list_microphones, load_persisted_settings, local_model_settings, microphone_status,
     recognition_language, request_accessibility, request_microphone_access, selected_microphone_id,
     set_local_model_settings, set_microphone_device, set_recognition_language,
-    sync_cleanup_runtime_for_settings,
+    sync_inference_manager_for_settings,
 };
-use inference::cleanup_runtime::CleanupRuntimeManager;
+use inference::manager::InferenceManager;
 use state::AppState;
 use tauri::{Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
@@ -61,7 +61,7 @@ fn set_floating_chrome_reason(
 pub fn run() {
     tauri::Builder::default()
         .manage(AppState::default())
-        .manage(CleanupRuntimeManager::default())
+        .manage(InferenceManager::product())
         .manage(AssetClient::default())
         .manage(FloatingChromeState::default())
         .setup(move |app| {
@@ -69,9 +69,9 @@ pub fn run() {
             {
                 eprintln!("settings load failed: {err}");
             }
-            sync_cleanup_runtime_for_settings(
+            sync_inference_manager_for_settings(
                 app.handle(),
-                app.state::<CleanupRuntimeManager>().inner(),
+                app.state::<InferenceManager>().inner(),
                 &app.state::<AppState>().inner().local_model_settings(),
             );
             setup_global_shortcut(app.handle())?;
@@ -127,7 +127,7 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                app_handle.state::<CleanupRuntimeManager>().shutdown();
+                let _ = app_handle.state::<InferenceManager>().shutdown();
             }
         });
 }

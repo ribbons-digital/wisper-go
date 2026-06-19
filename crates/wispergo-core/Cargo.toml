@@ -17,11 +17,13 @@ tokio = { version = "1", features = ["macros", "process", "rt-multi-thread", "ti
 whisper-rs = { version = "0.16", optional = true }
 
 [features]
-## Enables the in-process whisper.cpp ASR provider (Phase 2). Builds whisper.cpp
-## via whisper-rs-sys, which requires cmake + clang at build time. Metal is
-## enabled on Apple Silicon; the feature is otherwise CPU-only. Off by default
-## during the bridge state where the bundled whisper-cli sidecar is still ASR.
+## In-process whisper.cpp ASR provider (Phase 2). Builds whisper.cpp via
+## whisper-rs-sys (requires cmake + clang at build time). Metal is enabled on
+## Apple Silicon; CPU-only elsewhere. ON by default — the in-process provider
+## is the product ASR; the whisper-cli sidecar has been retired.
 whisper-rs = ["dep:whisper-rs"]
+
+default = ["whisper-rs"]
 
 # Apple Silicon: enable Metal acceleration.
 # Intel Macs and other targets fall back to the CPU build (no metal feature).

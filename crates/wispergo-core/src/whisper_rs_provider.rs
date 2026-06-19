@@ -29,8 +29,6 @@
 //! flight at a time; the Phase 4 `InferenceManager` will own idle-unload, not
 //! parallelism.
 
-#![cfg(feature = "whisper-rs")]
-
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

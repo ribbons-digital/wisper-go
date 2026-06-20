@@ -43,7 +43,7 @@ describe("LanguageToggle", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Recognition language: Chinese / Mixed" })).toHaveTextContent("ZH/Mix");
+    expect(screen.getByRole("button", { name: "Recognition language: Chinese / Mixed" })).toHaveTextContent("ZH");
   });
 
   it("cycles when the primary language button is clicked", async () => {

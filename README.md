@@ -9,7 +9,7 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
 - In-process offline cleanup for punctuation-only cleanup or full cleanup/classification after model download, without translating original language.
 - Recognition language modes: Auto, English, and Chinese / Mixed Chinese-English.
 - Floating status-only recorder pill.
-- Separate floating language control that cycles Auto → EN → ZH/Mix.
+- Separate floating language control that cycles Auto → EN → ZH.
 - macOS microphone and accessibility permission handling.
 - Clipboard/accessibility-based insertion with diagnostics when direct insertion is unavailable.
 

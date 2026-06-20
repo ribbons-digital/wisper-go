@@ -295,19 +295,27 @@ fn selected_asr_asset<'a>(
     Ok(asset)
 }
 
-async fn ensure_assets_for_settings(
+fn required_assets_for_settings<'a>(
+    manifest: &'a AssetManifest,
+    settings: &LocalModelSettings,
+    cleanup_backend: Option<&str>,
+) -> Result<Vec<&'a AssetEntry>, String> {
+    let mut assets = vec![selected_asr_asset(manifest, settings)?];
+    if settings.cleanup_mode == CleanupMode::FullCleanup
+        && managed_cleanup_runtime_enabled_for_backend(settings, cleanup_backend)
+    {
+        assets.push(selected_cleanup_asset(manifest, AssetRole::CleanupFull)?);
+    }
+    Ok(assets)
+}
+
+async fn ensure_asset_for_settings(
     app: &AppHandle,
     client_state: &AssetClient,
-    settings: &LocalModelSettings,
+    storage: &AssetStorage,
+    asset: &AssetEntry,
 ) -> Result<(), String> {
-    let manifest = load_bundled_manifest(app);
-    if manifest.assets.is_empty() {
-        return Ok(());
-    }
-
-    let storage = app_support_asset_storage(app)?;
-    let asset = selected_asr_asset(&manifest, settings)?.clone();
-    match verify_asset(&asset, &storage) {
+    match verify_asset(asset, storage) {
         AssetIntegrity::Valid => Ok(()),
         AssetIntegrity::Missing | AssetIntegrity::Corrupt => {
             let _ = app.emit(
@@ -317,7 +325,7 @@ async fn ensure_assets_for_settings(
                     display_name: asset.display_name.clone(),
                 },
             );
-            match repair_asset(&asset, &storage, &client_state.get()).await {
+            match repair_asset(asset, storage, &client_state.get()).await {
                 Ok(_) => {
                     let _ = app.emit(ASSET_DOWNLOAD_EVENT, AssetDownloadStatus::Ready);
                     Ok(())
@@ -335,6 +343,24 @@ async fn ensure_assets_for_settings(
             }
         }
     }
+}
+
+async fn ensure_assets_for_settings(
+    app: &AppHandle,
+    client_state: &AssetClient,
+    settings: &LocalModelSettings,
+) -> Result<(), String> {
+    let manifest = load_bundled_manifest(app);
+    if manifest.assets.is_empty() {
+        return Ok(());
+    }
+
+    let storage = app_support_asset_storage(app)?;
+    let cleanup_backend = env::var("WISPERGO_CLEANUP_BACKEND").ok();
+    for asset in required_assets_for_settings(&manifest, settings, cleanup_backend.as_deref())? {
+        ensure_asset_for_settings(app, client_state, &storage, asset).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -759,6 +785,42 @@ mod tests {
         }
     }
 
+    fn test_manifest_with_default_asr_and_cleanup_assets() -> wispergo_core::asset_manifest::AssetManifest {
+        let sha256 = "dc41663fad7e4d1e9d5767b61ec63919d3a120dc3e12f34bb5375658bbaccfb1";
+        wispergo_core::asset_manifest::AssetManifest {
+            schema_version: 1,
+            assets: vec![
+                wispergo_core::asset_manifest::AssetEntry {
+                    id: "medium".to_string(),
+                    role: AssetRole::Asr,
+                    display_name: "medium".to_string(),
+                    url: "https://example.test/medium.bin".to_string(),
+                    size: 10,
+                    sha256: sha256.to_string(),
+                    default: true,
+                },
+                wispergo_core::asset_manifest::AssetEntry {
+                    id: "qwen2.5-0.5b-instruct".to_string(),
+                    role: AssetRole::CleanupPunctuation,
+                    display_name: "qwen2.5-0.5b-instruct".to_string(),
+                    url: "https://example.test/qwen2.5-0.5b-instruct.gguf".to_string(),
+                    size: 10,
+                    sha256: sha256.to_string(),
+                    default: true,
+                },
+                wispergo_core::asset_manifest::AssetEntry {
+                    id: "qwen2.5-3b-instruct".to_string(),
+                    role: AssetRole::CleanupFull,
+                    display_name: "qwen2.5-3b-instruct".to_string(),
+                    url: "https://example.test/qwen2.5-3b-instruct.gguf".to_string(),
+                    size: 10,
+                    sha256: sha256.to_string(),
+                    default: false,
+                },
+            ],
+        }
+    }
+
     fn create_file(path: &std::path::Path) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create parent");
@@ -872,6 +934,56 @@ mod tests {
             asset_path
         );
         manager.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn required_assets_for_punctuation_only_selects_asr_only() {
+        let manifest = test_manifest_with_default_asr_and_cleanup_assets();
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        let assets = super::required_assets_for_settings(&manifest, &settings, None)
+            .expect("required assets");
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "medium");
+        assert_eq!(assets[0].role, AssetRole::Asr);
+    }
+
+    #[test]
+    fn required_assets_for_full_cleanup_selects_asr_and_cleanup_full() {
+        let manifest = test_manifest_with_default_asr_and_cleanup_assets();
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::FullCleanup,
+            ..LocalModelSettings::default()
+        };
+
+        let assets = super::required_assets_for_settings(&manifest, &settings, None)
+            .expect("required assets");
+
+        assert_eq!(assets.len(), 2);
+        assert_eq!(assets[0].id, "medium");
+        assert_eq!(assets[0].role, AssetRole::Asr);
+        assert_eq!(assets[1].id, "qwen2.5-3b-instruct");
+        assert_eq!(assets[1].role, AssetRole::CleanupFull);
+    }
+
+    #[test]
+    fn required_assets_for_full_cleanup_with_ollama_backend_selects_asr_only() {
+        let manifest = test_manifest_with_default_asr_and_cleanup_assets();
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::FullCleanup,
+            ..LocalModelSettings::default()
+        };
+
+        let assets = super::required_assets_for_settings(&manifest, &settings, Some("ollama"))
+            .expect("required assets");
+
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].id, "medium");
+        assert_eq!(assets[0].role, AssetRole::Asr);
     }
 
     #[test]

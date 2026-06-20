@@ -12,6 +12,8 @@ use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 use wispergo_core::providers::{AsrOutput, CleanupInput, TextCleanupProvider};
 
 use crate::audio::{capture_stats, AudioCaptureStats};
+use crate::commands::assets::{asset_readiness, AssetDownloadStatus};
+use crate::commands::settings::microphone_status;
 use crate::inference::manager::{
     AsrInferenceOutput, AsrInferenceRequest, CleanupInferenceRequest, InferenceManager,
 };
@@ -68,7 +70,12 @@ struct RecordingTimingDiagnostics {
 }
 
 #[tauri::command]
-pub fn start_recording(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+pub fn start_recording(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    mode: String,
+) -> Result<(), String> {
+    ensure_ready_to_start_dictation(&app)?;
     state.start_recording(&mode)
 }
 
@@ -217,6 +224,31 @@ fn append_json_line<T: serde::Serialize>(
 struct InsertionDiagnosticLogRecord<'a> {
     timestamp_ms: u128,
     diagnostics: &'a InsertionDiagnostics,
+}
+
+fn ensure_ready_to_start_dictation(app: &AppHandle) -> Result<(), String> {
+    let microphone_ready = microphone_status().granted;
+    let models_ready = matches!(asset_readiness(app.clone()), Ok(AssetDownloadStatus::Ready));
+
+    if let Some(message) = dictation_not_ready_message(microphone_ready, models_ready) {
+        let _ = crate::show_settings(app);
+        return Err(message.to_string());
+    }
+
+    Ok(())
+}
+
+fn dictation_not_ready_message(
+    microphone_ready: bool,
+    required_assets_ready: bool,
+) -> Option<&'static str> {
+    if !microphone_ready {
+        return Some("Finish Wispergo setup before dictating: grant microphone permission.");
+    }
+    if !required_assets_ready {
+        return Some("Finish Wispergo setup before dictating: download required models.");
+    }
+    None
 }
 
 fn current_timestamp_ms() -> u128 {
@@ -432,6 +464,17 @@ mod tests {
     };
 
     use crate::state::{AppState, CleanupMode, RecordingSession, RecordingStatus};
+
+    #[test]
+    fn dictation_readiness_requires_microphone_and_assets() {
+        assert!(super::dictation_not_ready_message(false, true)
+            .expect("microphone should be required")
+            .contains("microphone"));
+        assert!(super::dictation_not_ready_message(true, false)
+            .expect("models should be required")
+            .contains("models"));
+        assert!(super::dictation_not_ready_message(true, true).is_none());
+    }
 
     fn manager_for_cleanup_result(
         result: PipelineResult,
@@ -724,8 +767,8 @@ mod tests {
             confidence: None,
         });
 
-        let result = super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None, &manager)
-            .await;
+        let result =
+            super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None, &manager).await;
 
         assert_eq!(
             result,

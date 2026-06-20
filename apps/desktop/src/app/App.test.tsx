@@ -151,6 +151,21 @@ describe("App", () => {
     expect(screen.queryByText("Inserted: hello from voice")).not.toBeInTheDocument();
   });
 
+  it("shows setup needed when recording cannot start before setup is ready", async () => {
+    window.history.pushState({}, "", "/?surface=recorder");
+    vi.mocked(startRecording).mockRejectedValueOnce(
+      new Error("Finish Wispergo setup before dictating: download required models."),
+    );
+
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+    await emitRecordShortcut("Pressed");
+
+    expect(await screen.findByText("Setup needed")).toBeInTheDocument();
+    expect(screen.getByText("open settings to finish")).toBeInTheDocument();
+    expect(stopRecording).not.toHaveBeenCalled();
+  });
+
   it("does not expose floating recorder mouse controls", async () => {
     window.history.pushState({}, "", "/?surface=recorder");
     render(<App />);

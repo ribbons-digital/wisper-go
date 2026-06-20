@@ -328,13 +328,14 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
 ## Release readiness and UI polish 🟡
 
-- **R0 Product context + release-readiness spec** 🟡
+- **R0 Product context + release-readiness spec** ✅
   - Spec: `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
   - DoD: `PRODUCT.md` exists; release-readiness spec covers first-run setup,
     model downloads, icons, recording waveform, GitHub Actions, signing,
     notarization, docs, and implementation slices.
 
-- **R1 First-run setup and model readiness UX** ⬜
+- **R1 First-run setup and model readiness UX** ✅
+  - Plan: `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
   - Auto-show setup when permissions or required default Assets are missing.
   - Make model download status, retry, and dictation readiness obvious to
     non-developer users.

@@ -29,6 +29,14 @@ describe("FloatingRecorder", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  it("renders setup-needed guidance without exposing controls while expanded", () => {
+    render(<FloatingRecorder status="idle" setupNeeded expanded />);
+
+    expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Setup needed");
+    expect(screen.getByText("open settings to finish")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
   it("renders processing without exposing controls while expanded", () => {
     render(<FloatingRecorder status="idle" busy expanded />);
 

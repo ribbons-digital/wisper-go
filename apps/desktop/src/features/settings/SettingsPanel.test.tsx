@@ -117,6 +117,34 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("shows setup needed when microphone, accessibility, or models are missing", async () => {
+    const { assetReadiness } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({
+      state: "missing",
+      assetId: "medium",
+      displayName: "Whisper medium",
+    });
+
+    renderSettingsPanel({
+      microphone: { granted: false, canPrompt: true },
+      accessibility: { granted: false, canPrompt: true },
+    });
+
+    expect(await screen.findByText("Setup needed")).toBeInTheDocument();
+    expect(screen.getByText("Microphone permission")).toBeInTheDocument();
+    expect(screen.getByText("Accessibility permission")).toBeInTheDocument();
+    expect(screen.getByText("Required local models")).toBeInTheDocument();
+  });
+
+  it("shows ready when permissions and required models are ready", async () => {
+    const { assetReadiness } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({ state: "ready" });
+
+    renderSettingsPanel();
+
+    expect(await screen.findByText("Ready for dictation")).toBeInTheDocument();
+  });
+
   it("explains Chinese mixed-language recognition mode", () => {
     renderSettingsPanel();
 

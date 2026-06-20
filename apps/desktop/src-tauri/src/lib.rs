@@ -12,6 +12,7 @@ use std::sync::Mutex;
 
 use commands::assets::{
     asset_integrity, asset_readiness, ensure_model_assets, repair_asset_by_id, AssetClient,
+    AssetDownloadStatus,
 };
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
@@ -76,6 +77,7 @@ pub fn run() {
             );
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
+            show_settings_if_setup_required(app.handle());
             apply_floating_chrome_windows(app.handle(), false, false)?;
             configure_recorder_window_for_hover_tracking(app.handle());
             configure_language_window_for_hover_tracking(app.handle());
@@ -193,6 +195,24 @@ fn setup_menu_bar(app: &mut tauri::App) -> tauri::Result<()> {
 
     tray.build(app)?;
     Ok(())
+}
+
+fn setup_window_should_open(
+    microphone_granted: bool,
+    accessibility_granted: bool,
+    required_assets_ready: bool,
+) -> bool {
+    !microphone_granted || !accessibility_granted || !required_assets_ready
+}
+
+fn show_settings_if_setup_required(app: &tauri::AppHandle) {
+    let microphone_ready = microphone_status().granted;
+    let accessibility_ready = accessibility_status().granted;
+    let assets_ready = matches!(asset_readiness(app.clone()), Ok(AssetDownloadStatus::Ready));
+
+    if setup_window_should_open(microphone_ready, accessibility_ready, assets_ready) {
+        let _ = show_settings(app);
+    }
 }
 
 fn should_hide_window_on_close(label: &str) -> bool {
@@ -953,9 +973,22 @@ mod tests {
         language_window_visible_for_floating_chrome, parse_floating_chrome_reason,
         recorder_native_window_size_for_mode, recorder_window_ignores_cursor_events,
         recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
-        should_hide_window_on_close, FloatingChromeReason, FloatingChromeReasonState,
-        FloatingRecorderMode, FLOATING_BOTTOM_MARGIN, HOVER_COLLAPSE_GRACE_MS,
+        setup_window_should_open, should_hide_window_on_close, FloatingChromeReason,
+        FloatingChromeReasonState, FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
+        HOVER_COLLAPSE_GRACE_MS,
     };
+
+    #[test]
+    fn setup_window_opens_when_required_setup_is_incomplete() {
+        assert!(setup_window_should_open(false, true, true));
+        assert!(setup_window_should_open(true, false, true));
+        assert!(setup_window_should_open(true, true, false));
+    }
+
+    #[test]
+    fn setup_window_stays_hidden_when_required_setup_is_complete() {
+        assert!(!setup_window_should_open(true, true, true));
+    }
 
     #[test]
     fn settings_window_close_hides_instead_of_destroying_window() {

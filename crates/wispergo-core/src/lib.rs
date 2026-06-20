@@ -3,6 +3,7 @@ pub mod asset_storage;
 pub mod audio;
 pub mod cleanup_inprocess;
 pub mod cleanup_prompt;
+pub mod cleanup_safety;
 pub mod domain;
 pub mod downloader;
 pub mod fallback;

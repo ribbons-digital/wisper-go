@@ -66,13 +66,30 @@ fn rejects_removed_latin_word() {
 
 #[test]
 fn rejects_empty_raw() {
-    assert!(!is_safe_punctuation_cleanup(
-        "",
-        "Hello, world.",
-    ));
+    assert!(!is_safe_punctuation_cleanup("", "Hello, world.",));
 }
 
 #[test]
 fn rejects_empty_candidate() {
     assert!(!is_safe_punctuation_cleanup("hello world", ""));
+}
+
+#[test]
+fn rejects_latin_word_merge() {
+    assert!(!is_safe_punctuation_cleanup("hello world", "helloworld"));
+}
+
+#[test]
+fn rejects_latin_word_split() {
+    assert!(!is_safe_punctuation_cleanup("helloworld", "hello world"));
+}
+
+#[test]
+fn rejects_dropped_currency_symbol() {
+    assert!(!is_safe_punctuation_cleanup("$5 is due", "5 is due"));
+}
+
+#[test]
+fn rejects_dropped_math_symbol() {
+    assert!(!is_safe_punctuation_cleanup("a+b equals c", "ab equals c",));
 }

@@ -9,35 +9,98 @@ pub fn is_safe_punctuation_cleanup(raw: &str, candidate: &str) -> bool {
         return false;
     }
 
-    let raw_content = normalized_content(raw);
-    let candidate_content = normalized_content(candidate);
+    let raw_content = normalized_content_tokens(raw);
+    let candidate_content = normalized_content_tokens(candidate);
 
     !raw_content.is_empty() && raw_content == candidate_content
 }
 
-fn normalized_content(text: &str) -> String {
-    text.chars()
-        .filter_map(normalized_content_char)
-        .collect::<String>()
-}
+fn normalized_content_tokens(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
 
-fn normalized_content_char(ch: char) -> Option<char> {
-    if is_ignored_punctuation_or_spacing(ch) {
-        return None;
+    for ch in text.chars() {
+        if ch.is_whitespace() || is_ignored_punctuation(ch) {
+            flush_current(&mut tokens, &mut current);
+            continue;
+        }
+
+        if is_preserved_standalone_symbol(ch) {
+            flush_current(&mut tokens, &mut current);
+            tokens.push(ch.to_string());
+            continue;
+        }
+
+        current.push(ch.to_ascii_lowercase());
     }
 
-    Some(ch.to_ascii_lowercase())
+    flush_current(&mut tokens, &mut current);
+    tokens
 }
 
-fn is_ignored_punctuation_or_spacing(ch: char) -> bool {
-    ch.is_whitespace()
-        || ch.is_ascii_punctuation()
-        || matches!(
-            ch,
-            '。' | '？' | '！' | '，' | '、' | '；' | '：' | '「' | '」' | '『' | '』'
-                | '“' | '”' | '‘' | '’' | '（' | '）' | '《' | '》' | '〈' | '〉'
-                | '…' | '—' | '～' | '·' | '￥'
-        )
+fn flush_current(tokens: &mut Vec<String>, current: &mut String) {
+    if !current.is_empty() {
+        tokens.push(std::mem::take(current));
+    }
+}
+
+fn is_preserved_standalone_symbol(ch: char) -> bool {
+    matches!(
+        ch,
+        '$' | '+' | '=' | '@' | '#' | '%' | '&' | '*' | '￥' | '€' | '£' | '¥'
+    )
+}
+
+fn is_ignored_punctuation(ch: char) -> bool {
+    matches!(
+        ch,
+        '.' | ','
+            | '!'
+            | '?'
+            | ':'
+            | ';'
+            | '\''
+            | '"'
+            | '`'
+            | '-'
+            | '_'
+            | '/'
+            | '\\'
+            | '|'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+            | '<'
+            | '>'
+            | '。'
+            | '？'
+            | '！'
+            | '，'
+            | '、'
+            | '；'
+            | '：'
+            | '「'
+            | '」'
+            | '『'
+            | '』'
+            | '“'
+            | '”'
+            | '‘'
+            | '’'
+            | '（'
+            | '）'
+            | '《'
+            | '》'
+            | '〈'
+            | '〉'
+            | '…'
+            | '—'
+            | '～'
+            | '·'
+    )
 }
 
 #[cfg(test)]
@@ -45,7 +108,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn normalized_content_removes_common_punctuation_and_spaces() {
-        assert_eq!(normalized_content(" Hello, 小王！ "), "hello小王".to_string());
+    fn normalized_content_removes_common_punctuation_but_preserves_word_boundaries() {
+        assert_eq!(
+            normalized_content_tokens(" Hello, 小王！ "),
+            vec!["hello".to_string(), "小王".to_string()]
+        );
+    }
+
+    #[test]
+    fn normalized_content_preserves_symbols_as_tokens() {
+        assert_eq!(
+            normalized_content_tokens("a+b = $5"),
+            vec![
+                "a".to_string(),
+                "+".to_string(),
+                "b".to_string(),
+                "=".to_string(),
+                "$".to_string(),
+                "5".to_string(),
+            ]
+        );
     }
 }

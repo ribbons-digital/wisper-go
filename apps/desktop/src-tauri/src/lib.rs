@@ -319,12 +319,8 @@ fn install_language_inactive_hover_monitor(app: &tauri::AppHandle) {
     let handler = RcBlock::into_raw(handler);
 
     unsafe {
-        let event_class = objc_getClass(b"NSEvent\0".as_ptr().cast());
-        let selector = sel_registerName(
-            b"addGlobalMonitorForEventsMatchingMask:handler:\0"
-                .as_ptr()
-                .cast(),
-        );
+        let event_class = objc_getClass(c"NSEvent".as_ptr());
+        let selector = sel_registerName(c"addGlobalMonitorForEventsMatchingMask:handler:".as_ptr());
         if event_class.is_null() || selector.is_null() {
             return;
         }
@@ -407,12 +403,8 @@ fn install_recorder_inactive_hover_monitor(app: &tauri::AppHandle) {
     let handler = RcBlock::into_raw(handler);
 
     unsafe {
-        let event_class = objc_getClass(b"NSEvent\0".as_ptr().cast());
-        let selector = sel_registerName(
-            b"addGlobalMonitorForEventsMatchingMask:handler:\0"
-                .as_ptr()
-                .cast(),
-        );
+        let event_class = objc_getClass(c"NSEvent".as_ptr());
+        let selector = sel_registerName(c"addGlobalMonitorForEventsMatchingMask:handler:".as_ptr());
         if event_class.is_null() || selector.is_null() {
             return;
         }
@@ -446,7 +438,7 @@ unsafe fn cursor_position_and_window_size(
     }
 
     let mouse_location_selector =
-        unsafe { sel_registerName(b"mouseLocationOutsideOfEventStream\0".as_ptr().cast()) };
+        unsafe { sel_registerName(c"mouseLocationOutsideOfEventStream".as_ptr()) };
     if mouse_location_selector.is_null() {
         return None;
     }
@@ -506,11 +498,10 @@ unsafe fn activate_language_window_on_hover(ns_window: *mut std::ffi::c_void) {
         fn objc_msg_send_make_key_window(receiver: *mut c_void, selector: *mut c_void);
     }
 
-    let app_class = unsafe { objc_getClass(b"NSApplication\0".as_ptr().cast()) };
-    let shared_selector = unsafe { sel_registerName(b"sharedApplication\0".as_ptr().cast()) };
-    let activate_selector =
-        unsafe { sel_registerName(b"activateIgnoringOtherApps:\0".as_ptr().cast()) };
-    let make_key_selector = unsafe { sel_registerName(b"makeKeyWindow\0".as_ptr().cast()) };
+    let app_class = unsafe { objc_getClass(c"NSApplication".as_ptr()) };
+    let shared_selector = unsafe { sel_registerName(c"sharedApplication".as_ptr()) };
+    let activate_selector = unsafe { sel_registerName(c"activateIgnoringOtherApps:".as_ptr()) };
+    let make_key_selector = unsafe { sel_registerName(c"makeKeyWindow".as_ptr()) };
     if app_class.is_null()
         || shared_selector.is_null()
         || activate_selector.is_null()

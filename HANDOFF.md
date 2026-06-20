@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated after Phase 4.2 local verification)
-**Next session focus:** Commit/push/open PR for completed **Phase 4.2 `InferenceManager` recording/settings wiring** on branch `phase-4-2-inference-manager-wiring`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5 model tiering. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-19 (updated during desktop clippy cleanup)
+**Next session focus:** Commit/push/open PR for the small **desktop clippy gate cleanup** on branch `cleanup-desktop-clippy-gate`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5 model tiering. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -12,8 +12,9 @@
 - **Phase 3.2 is complete and merged** (PR #9): `LlamaCppCleanupProvider` exists behind the existing traits/feature, with shared prompt/parsing contract and approved fake-seam + ignored real-GGUF test strategy.
 - **Phase 3.3 is complete and merged** (PR #10): cleanup sidecar path is deleted, `llama-cpp` is on by default, recording uses `LlamaCppCleanupProvider`, and `cleanup_runtime_status` is now a lightweight bridge until Phase 4.
 - **Phase 4.1 is complete and merged** (PR #11): desktop `InferenceManager` lifecycle core exists with dedicated worker threads, fake-engine tests, lazy-load, idle unload, generation guard, and panic/failure reload-on-next-request behavior.
-- **Phase 4.2 is implemented and verified locally** on branch `phase-4-2-inference-manager-wiring`: recording/settings now use `InferenceManager`, the temporary `CleanupRuntimeManager` bridge is removed, `cleanup_runtime_status` remains frontend-compatible, and tests cover the manager wiring behavior.
-- **Local `main` was in sync** with `origin/main` after PR #11; current work is on feature branch `phase-4-2-inference-manager-wiring`.
+- **Phase 4.2 is complete and merged** (PR #12): recording/settings now use `InferenceManager`, the temporary `CleanupRuntimeManager` bridge is removed, `cleanup_runtime_status` remains frontend-compatible, and tests cover the manager wiring behavior.
+- **Desktop clippy cleanup is implemented and verified locally** on branch `cleanup-desktop-clippy-gate`: `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes by moving `recording.rs` tests to the end of the file and replacing manual Objective-C nul strings with C string literals in `lib.rs`.
+- **Local `main` was in sync** with `origin/main` after PR #12; current work is on feature branch `cleanup-desktop-clippy-gate`.
 
 ## The work, in one paragraph
 
@@ -41,7 +42,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 1 Asset Downloader (core + command + integrity) | ✅ | PRs #2, #3, #4 |
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
 | 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
-| 4 InferenceManager lifecycle | ⬜ | — |
+| 4 InferenceManager lifecycle | ✅ | PRs #11, #12 |
 | 5 Model tiering + readiness gate | ⬜ | — |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
 | 7 Streaming (follow-on) | ⬜ | — |
@@ -55,7 +56,7 @@ From `AGENTS.md` and the user's documented workflow:
 3. **Bridge state discipline:** every merge keeps main shippable. Additive/switch slices land before removal slices. "Remove old" only after "new is default and verified."
 4. **`gh` CLI is used for push + PR + merge** (SSH key isn't loaded; remote is HTTPS with gh's token — already configured via `gh auth setup-git`). Active account: `ribbons-digital`.
 5. **Package installs:** `sfw pnpm install <pkg>` (JS only). Rust deps go in `Cargo.toml` directly. System build deps via `brew` (cmake already installed).
-6. **Shippability gate before every PR:** `cargo build --workspace` (0 warnings) + `cargo test --workspace` + `cargo clippy -p wispergo-core --all-targets -- -D warnings` + `pnpm test:ts` (64 TS tests). Run all four; report results.
+6. **Shippability gate before every PR:** `cargo build --workspace` (0 warnings) + `cargo test --workspace` + `cargo clippy -p wispergo-core --all-targets -- -D warnings` + `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` + `pnpm test:ts` (64 TS tests). Run all five; report results.
 7. **Revert the stray `package.json` `packageManager` field** that `pnpm test:ts` auto-adds — it's out of scope for every slice. `git checkout -- package.json` before committing.
 8. **Sole maintainer/user = the user (shiang).** This justifies aggressive simplifications: no need to keep dark fallbacks, feature can flip on by default, no multi-user concerns. The user explicitly chose "1a + 2a" (delete sidecar outright, feature on by default) over the conservative "keep dark fallback" options.
 
@@ -81,11 +82,15 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #11. Added `apps/desktop/src-tauri/src/inference/manager.rs` with dedicated per-engine worker threads, command channels, lazy-load-on-request, idle unload, generation-guarded stale unload protection, failure/panic unload, reload-on-next-request, fake-engine tests, and ASR + cleanup slots.
 
-## Current slice: Phase 4.2 — `InferenceManager` recording/settings wiring
+## Recently completed slice: Phase 4.2 — `InferenceManager` recording/settings wiring
 
 **Design status:** Approved in `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md`.
 
-**Implementation status:** Implemented and verified locally on branch `phase-4-2-inference-manager-wiring`. Removed `apps/desktop/src-tauri/src/inference/cleanup_runtime.rs`; app setup now manages `InferenceManager::product()` and arms it after settings load; settings sync arms ASR/cleanup and re-arms ASR on recognition-language changes; recording routes ASR and local cleanup through the manager; Ollama override still bypasses local cleanup; cleanup manager errors still fall back to raw ASR; frontend `cleanup_runtime_status` command remains stable.
+**Implementation status:** Merged in PR #12. Removed `apps/desktop/src-tauri/src/inference/cleanup_runtime.rs`; app setup now manages `InferenceManager::product()` and arms it after settings load; settings sync arms ASR/cleanup and re-arms ASR on recognition-language changes; recording routes ASR and local cleanup through the manager; Ollama override still bypasses local cleanup; cleanup manager errors still fall back to raw ASR; frontend `cleanup_runtime_status` command remains stable.
+
+## Current cleanup slice: desktop clippy gate
+
+**Implementation status:** Implemented and verified locally on branch `cleanup-desktop-clippy-gate`. Moved the `recording.rs` test module below runtime items to satisfy `items-after-test-module`; replaced manual Objective-C nul-terminated byte strings in `lib.rs` with Rust C string literals. `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -102,7 +107,7 @@ From `AGENTS.md` and the user's documented workflow:
 - **Dictation-readiness gate → Phase 5.** The "block dictation until ASR asset downloaded" state can't wire until the manifest has real assets (Phase 5). The bundled model is still the in-process provider's model source today. Gating now would break all dictation.
 - **Real manifest entries → Phase 5.** `apps/desktop/src-tauri/resources/models.manifest.json` is an empty placeholder. Real model URLs/sizes/SHA-256s land in Phase 5 (model tiering), gated on the `offline-cleanup-eval.md` fixture for the 0.5B-vs-1.5B cleanup decision.
 - **`LocalModelSettings.whisper_binary_path`** is now unused (sidecar gone) but kept to avoid a settings-schema migration; cleanup in Phase 6.
-- **ASR idle-unload / lazy-load lifecycle → Phase 4** (`InferenceManager`). The `WhisperRsProvider` loads its context on first `transcribe` and holds it; no idle unload yet.
+- **Lower-level persistent llama model optimization.** Phase 4.2 intentionally wires `InferenceManager` through existing `WhisperRsProvider` and `LlamaCppCleanupProvider`; a lower-level persistent `LlamaBackend` + `LlamaModel` cleanup engine remains a focused performance follow-up if needed.
 - **Streaming partial transcripts → Phase 7** (follow-on, separate spec).
 
 ## One thing the automated gate can't cover

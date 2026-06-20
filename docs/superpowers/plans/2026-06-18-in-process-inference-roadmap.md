@@ -212,7 +212,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     `cleanup_runtime_status` bridge until Phase 4 `InferenceManager`; removed
     cleanup sidecar binary requirements from bundle verification scripts/docs.
 
-## Phase 4 — InferenceManager Lifecycle ⬜
+## Phase 4 — InferenceManager Lifecycle ✅
 
 - **4.1 Lazy-load + idle-unload state machine** ✅
   - New `InferenceManager` lifecycle core for ASR and cleanup slots. Same
@@ -226,12 +226,12 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     that.
   - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md`.
 
-- **4.2 Wire recording/settings → `InferenceManager`** ✅ locally complete (PR needed)
+- **4.2 Wire recording/settings → `InferenceManager`** ✅
   - "Arm, don't load" at setup; first dictation triggers ASR load. Settings
     changes route through the manager. Local cleanup loads only when Cleanup
     Mode is not Off and Ollama override is absent.
-  - Done locally: removed the temporary `CleanupRuntimeManager` bridge; kept the
-    frontend `cleanup_runtime_status` command stable; app setup and settings
+  - Done in PR #12: removed the temporary `CleanupRuntimeManager` bridge; kept
+    the frontend `cleanup_runtime_status` command stable; app setup and settings
     sync now arm/disable `InferenceManager`; recording requests ASR and local
     cleanup through the manager; Ollama override still bypasses local cleanup;
     cleanup errors still fall back to raw ASR.

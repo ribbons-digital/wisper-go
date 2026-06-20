@@ -1,4 +1,23 @@
 {
   "schemaVersion": 1,
-  "assets": []
+  "assets": [
+    {
+      "id": "medium",
+      "role": "asr",
+      "displayName": "Whisper medium",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium-q5_0.bin",
+      "size": 539212467,
+      "sha256": "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f",
+      "default": true
+    },
+    {
+      "id": "large-v3-turbo",
+      "role": "asr",
+      "displayName": "Whisper large-v3-turbo Accuracy Pack",
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+      "size": 1624555275,
+      "sha256": "1fc70f774d38eb169993ac391eea357ef47c88757ef72ee5943879b7e8e2bc69",
+      "default": false
+    }
+  ]
 }

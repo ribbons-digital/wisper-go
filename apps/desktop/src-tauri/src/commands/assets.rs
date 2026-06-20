@@ -19,10 +19,13 @@ use wispergo_core::downloader::{
     download_defaults, integrity_sweep, missing_defaults, repair_asset, AssetIntegrity,
 };
 
+use crate::commands::settings::sync_inference_manager_for_settings;
 use crate::inference::app_support_asset_storage;
+use crate::inference::manager::InferenceManager;
+use crate::state::AppState;
 
 const MANIFEST_RESOURCE_PATH: &str = "resources/models.manifest.json";
-const ASSET_DOWNLOAD_EVENT: &str = "wispergo://asset-download";
+pub(crate) const ASSET_DOWNLOAD_EVENT: &str = "wispergo://asset-download";
 
 /// Frontend-facing download status for the default-asset set.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -31,9 +34,18 @@ pub enum AssetDownloadStatus {
     /// No download needed; all default assets are present (or the manifest has
     /// no defaults).
     Ready,
+    /// One or more default assets are missing and should be downloaded.
+    #[serde(rename_all = "camelCase")]
+    Missing {
+        asset_id: String,
+        display_name: String,
+    },
     /// One or more default assets are being downloaded.
     #[serde(rename_all = "camelCase")]
-    Downloading { asset_id: String, display_name: String },
+    Downloading {
+        asset_id: String,
+        display_name: String,
+    },
     /// A download attempt failed.
     Failed { message: String },
 }
@@ -43,7 +55,7 @@ pub enum AssetDownloadStatus {
 pub struct AssetClient(Mutex<Option<reqwest::Client>>);
 
 impl AssetClient {
-    fn get(&self) -> reqwest::Client {
+    pub(crate) fn get(&self) -> reqwest::Client {
         self.0
             .lock()
             .expect("asset client lock")
@@ -82,9 +94,9 @@ pub fn asset_readiness(app: AppHandle) -> Result<AssetDownloadStatus, String> {
     if missing.is_empty() {
         Ok(AssetDownloadStatus::Ready)
     } else {
-        // Report the first missing asset as the current download target.
+        // Report the first missing asset as the next needed download target.
         let next = missing[0];
-        Ok(AssetDownloadStatus::Downloading {
+        Ok(AssetDownloadStatus::Missing {
             asset_id: next.id.clone(),
             display_name: next.display_name.clone(),
         })
@@ -99,6 +111,8 @@ pub fn asset_readiness(app: AppHandle) -> Result<AssetDownloadStatus, String> {
 pub async fn ensure_model_assets(
     app: AppHandle,
     client_state: State<'_, AssetClient>,
+    app_state: State<'_, AppState>,
+    inference_manager: State<'_, InferenceManager>,
 ) -> Result<AssetDownloadStatus, String> {
     let manifest = load_bundled_manifest(&app);
     let storage = app_support_asset_storage(&app)?;
@@ -122,6 +136,11 @@ pub async fn ensure_model_assets(
         .collect();
 
     if failed.is_empty() {
+        sync_inference_manager_for_settings(
+            &app,
+            inference_manager.inner(),
+            &app_state.local_model_settings(),
+        );
         let _ = app.emit(ASSET_DOWNLOAD_EVENT, AssetDownloadStatus::Ready);
         Ok(AssetDownloadStatus::Ready)
     } else {
@@ -205,6 +224,8 @@ pub fn asset_integrity(app: AppHandle) -> Result<IntegrityReport, String> {
 pub async fn repair_asset_by_id(
     app: AppHandle,
     client_state: State<'_, AssetClient>,
+    app_state: State<'_, AppState>,
+    inference_manager: State<'_, InferenceManager>,
     asset_id: String,
 ) -> Result<AssetDownloadStatus, String> {
     let manifest = load_bundled_manifest(&app);
@@ -215,6 +236,11 @@ pub async fn repair_asset_by_id(
     let client = client_state.get();
     match repair_asset(&asset, &storage, &client).await {
         Ok(_) => {
+            sync_inference_manager_for_settings(
+                &app,
+                inference_manager.inner(),
+                &app_state.local_model_settings(),
+            );
             let _ = app.emit(ASSET_DOWNLOAD_EVENT, AssetDownloadStatus::Ready);
             Ok(AssetDownloadStatus::Ready)
         }
@@ -236,6 +262,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bundled_manifest_declares_asr_default_and_accuracy_pack() {
+        let manifest_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/models.manifest.json");
+        let text = std::fs::read_to_string(manifest_path).expect("read manifest");
+        let manifest = AssetManifest::from_json(&text).expect("valid manifest");
+
+        let medium = manifest.find("medium").expect("medium asset");
+        assert_eq!(medium.role, wispergo_core::asset_manifest::AssetRole::Asr);
+        assert_eq!(medium.size, 539_212_467);
+        assert_eq!(
+            medium.sha256,
+            "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f"
+        );
+        assert!(medium.default);
+        assert!(medium.url.ends_with("/ggml-medium-q5_0.bin"));
+
+        let accuracy = manifest
+            .find("large-v3-turbo")
+            .expect("large-v3-turbo asset");
+        assert_eq!(accuracy.role, wispergo_core::asset_manifest::AssetRole::Asr);
+        assert_eq!(accuracy.size, 1_624_555_275);
+        assert!(!accuracy.default);
+        assert!(accuracy.url.ends_with("/ggml-large-v3-turbo.bin"));
+    }
+
+    #[test]
     fn empty_manifest_has_no_assets() {
         let m = empty_manifest();
         assert!(m.assets.is_empty());
@@ -246,6 +298,18 @@ mod tests {
     fn asset_download_status_serializes_ready() {
         let v = serde_json::to_value(AssetDownloadStatus::Ready).unwrap();
         assert_eq!(v["state"], "ready");
+    }
+
+    #[test]
+    fn asset_download_status_serializes_missing() {
+        let v = serde_json::to_value(AssetDownloadStatus::Missing {
+            asset_id: "medium".to_string(),
+            display_name: "Whisper medium".to_string(),
+        })
+        .unwrap();
+        assert_eq!(v["state"], "missing");
+        assert_eq!(v["assetId"], "medium", "serialized as: {v}");
+        assert_eq!(v["displayName"], "Whisper medium");
     }
 
     #[test]

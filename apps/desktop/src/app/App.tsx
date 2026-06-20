@@ -66,6 +66,7 @@ export function App() {
   const [modelSettings, setModelSettings] = useState<LocalModelSettings>({
     whisperBinaryPath: "",
     whisperModelPath: "",
+    asrModelId: "medium",
     recognitionLanguage: "auto",
     cleanupMode: "punctuation_only",
   });
@@ -343,6 +344,7 @@ export function App() {
           setModelSettings({
             whisperBinaryPath: "",
             whisperModelPath: "",
+            asrModelId: "medium",
             recognitionLanguage: "auto",
             cleanupMode: "punctuation_only",
           });

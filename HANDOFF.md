@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated during desktop clippy cleanup)
-**Next session focus:** Commit/push/open PR for the small **desktop clippy gate cleanup** on branch `cleanup-desktop-clippy-gate`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5 model tiering. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-19 (updated after Phase 5.1 local verification)
+**Next session focus:** Commit/push/open PR for completed **Phase 5.1 ASR model tiering** on branch `phase-5-1-asr-model-tiering`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5.2 cleanup punctuation eval/default. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -13,8 +13,9 @@
 - **Phase 3.3 is complete and merged** (PR #10): cleanup sidecar path is deleted, `llama-cpp` is on by default, recording uses `LlamaCppCleanupProvider`, and `cleanup_runtime_status` is now a lightweight bridge until Phase 4.
 - **Phase 4.1 is complete and merged** (PR #11): desktop `InferenceManager` lifecycle core exists with dedicated worker threads, fake-engine tests, lazy-load, idle unload, generation guard, and panic/failure reload-on-next-request behavior.
 - **Phase 4.2 is complete and merged** (PR #12): recording/settings now use `InferenceManager`, the temporary `CleanupRuntimeManager` bridge is removed, `cleanup_runtime_status` remains frontend-compatible, and tests cover the manager wiring behavior.
-- **Desktop clippy cleanup is implemented and verified locally** on branch `cleanup-desktop-clippy-gate`: `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes by moving `recording.rs` tests to the end of the file and replacing manual Objective-C nul strings with C string literals in `lib.rs`.
-- **Local `main` was in sync** with `origin/main` after PR #12; current work is on feature branch `cleanup-desktop-clippy-gate`.
+- **Desktop clippy cleanup is complete and merged** (PR #13): `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes by moving `recording.rs` tests to the end of the file and replacing manual Objective-C nul strings with C string literals in `lib.rs`.
+- **Phase 5.1 is implemented locally** on branch `phase-5-1-asr-model-tiering`: ASR manifest entries are populated, `asrModelId` setting/UI exists, selected ASR Assets resolve from app-support storage, and settings activation downloads/verifies the selected ASR Asset first.
+- **Local `main` was in sync** with `origin/main` after PR #13; current work is on feature branch `phase-5-1-asr-model-tiering`.
 
 ## The work, in one paragraph
 
@@ -27,7 +28,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Phase 3.2 design:** `docs/superpowers/specs/2026-06-19-llama-cpp-cleanup-provider-3-2-design.md` — approved and implemented in PR #9.
 - **Phase 3.3 design:** `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md` — approved and implemented in PR #10.
 - **Phase 4 design:** `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md` — approved by user; Phase 4.1 implemented in PR #11.
-- **Phase 4.2 design:** `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md` — approved by user; Phase 4.2 implemented locally.
+- **Phase 4.2 design:** `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md` — approved by user; Phase 4.2 implemented in PR #12.
+- **Phase 5 design:** `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md` — approved by user; Phase 5.1 implemented locally.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -43,7 +45,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
 | 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
 | 4 InferenceManager lifecycle | ✅ | PRs #11, #12 |
-| 5 Model tiering + readiness gate | ⬜ | — |
+| 5 Model tiering + readiness gate | 🟡 5.1 locally complete | — |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
 | 7 Streaming (follow-on) | ⬜ | — |
 
@@ -88,9 +90,15 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #12. Removed `apps/desktop/src-tauri/src/inference/cleanup_runtime.rs`; app setup now manages `InferenceManager::product()` and arms it after settings load; settings sync arms ASR/cleanup and re-arms ASR on recognition-language changes; recording routes ASR and local cleanup through the manager; Ollama override still bypasses local cleanup; cleanup manager errors still fall back to raw ASR; frontend `cleanup_runtime_status` command remains stable.
 
-## Current cleanup slice: desktop clippy gate
+## Recently completed cleanup slice: desktop clippy gate
 
-**Implementation status:** Implemented and verified locally on branch `cleanup-desktop-clippy-gate`. Moved the `recording.rs` test module below runtime items to satisfy `items-after-test-module`; replaced manual Objective-C nul-terminated byte strings in `lib.rs` with Rust C string literals. `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes.
+**Implementation status:** Merged in PR #13. Moved the `recording.rs` test module below runtime items to satisfy `items-after-test-module`; replaced manual Objective-C nul-terminated byte strings in `lib.rs` with Rust C string literals. `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes.
+
+## Current slice: Phase 5.1 — ASR model tiering
+
+**Design status:** Phase 5 design approved in `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`.
+
+**Implementation status:** Implemented locally on branch `phase-5-1-asr-model-tiering`. Populated `models.manifest.json` with verified ASR entries for `medium` (`ggml-medium-q5_0.bin`) and `large-v3-turbo`; added `asrModelId` to Rust/TS settings schema and settings UI; changed ASR live resolution to use verified app-support Assets when the manifest is populated; added download-before-activation for selected ASR model settings; asset readiness now distinguishes `missing` from active `downloading`; successful default/repair downloads resync `InferenceManager`.
 
 ## Key gotchas learned this run (save yourself the time)
 

@@ -43,6 +43,7 @@ vi.mock("../lib/tauriApi", () => ({
   localModelSettings: vi.fn().mockResolvedValue({
     whisperBinaryPath: "/usr/local/bin/whisper-cli",
     whisperModelPath: "/models/base.bin",
+    asrModelId: "medium",
     recognitionLanguage: "auto",
     cleanupMode: "punctuation_only",
   }),
@@ -95,6 +96,7 @@ describe("App", () => {
     vi.mocked(localModelSettings).mockResolvedValue({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
     });
@@ -288,6 +290,7 @@ describe("App", () => {
     expect(setLocalModelSettings).toHaveBeenCalledWith({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      asrModelId: "medium",
       recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
     });
@@ -304,6 +307,7 @@ describe("App", () => {
     vi.mocked(localModelSettings).mockResolvedValueOnce({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "off",
     });

@@ -6,9 +6,16 @@ use std::thread;
 use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
+use wispergo_core::asset_manifest::{AssetEntry, AssetManifest, AssetRole};
+use wispergo_core::asset_storage::AssetStorage;
+use wispergo_core::downloader::{repair_asset, verify_asset, AssetIntegrity};
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 
 use crate::audio::AudioInputDevice;
+use crate::commands::assets::{
+    load_bundled_manifest, AssetClient, AssetDownloadStatus, ASSET_DOWNLOAD_EVENT,
+};
+use crate::inference::app_support_asset_storage;
 use crate::inference::manager::{
     AsrEngineConfig, CleanupEngineConfig, CleanupInferenceMode, InferenceManager,
     InferenceRuntimeStatus,
@@ -68,6 +75,8 @@ pub fn sync_inference_manager_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
 ) {
+    let manifest = load_bundled_manifest(app);
+    let storage = app_support_asset_storage(app).ok();
     let resources = match app.path().resource_dir() {
         Ok(resource_root) => Some(InferenceResourcePaths::from_resource_root(resource_root)),
         Err(err) => {
@@ -76,7 +85,13 @@ pub fn sync_inference_manager_for_settings(
         }
     };
 
-    sync_asr_for_settings(inference_manager, settings, resources.as_ref());
+    sync_asr_for_settings(
+        inference_manager,
+        settings,
+        resources.as_ref(),
+        &manifest,
+        storage.as_ref(),
+    );
     sync_cleanup_for_settings(inference_manager, settings, resources.as_ref());
 }
 
@@ -84,8 +99,10 @@ fn sync_asr_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
     resources: Option<&InferenceResourcePaths>,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
 ) {
-    match resolve_asr_model_path_for_settings(settings, resources) {
+    match resolve_asr_model_path_for_settings(settings, resources, manifest, storage) {
         Ok(model_path) => {
             if let Err(err) = inference_manager.asr().arm(AsrEngineConfig {
                 model_path,
@@ -152,7 +169,32 @@ fn sync_cleanup_for_settings(
 fn resolve_asr_model_path_for_settings(
     settings: &LocalModelSettings,
     resources: Option<&InferenceResourcePaths>,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
 ) -> Result<PathBuf, String> {
+    if let Some(env_model) = env::var_os("WISPERGO_WHISPER_MODEL").map(PathBuf::from) {
+        return Ok(env_model);
+    }
+
+    if !manifest.assets.is_empty() {
+        let storage = storage.ok_or_else(|| {
+            "Local ASR asset storage is unavailable. Reopen Wispergo and try again.".to_string()
+        })?;
+        let asset = selected_asr_asset(manifest, settings)?;
+        let path = storage.asset_path(&asset.id, asset.role);
+        return match verify_asset(asset, storage) {
+            AssetIntegrity::Valid => Ok(path),
+            AssetIntegrity::Missing => Err(format!(
+                "ASR model '{}' is not downloaded yet. Download models before dictating.",
+                asset.display_name
+            )),
+            AssetIntegrity::Corrupt => Err(format!(
+                "ASR model '{}' is corrupt. Repair or re-download models before dictating.",
+                asset.display_name
+            )),
+        };
+    }
+
     let bundled_model_path = resources
         .filter(|resources| resources.asr_model_path.exists())
         .map(|resources| resources.asr_model_path.clone());
@@ -161,10 +203,7 @@ fn resolve_asr_model_path_for_settings(
         .as_ref()
         .map(|path| PathBuf::from(path.trim()))
         .filter(|path| path.exists());
-    let model_path = env::var_os("WISPERGO_WHISPER_MODEL")
-        .map(PathBuf::from)
-        .or(bundled_model_path)
-        .or(settings_model_path);
+    let model_path = bundled_model_path.or(settings_model_path);
 
     match model_path {
         Some(path) => Ok(path),
@@ -172,6 +211,64 @@ fn resolve_asr_model_path_for_settings(
             "Local ASR is not configured. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL."
                 .to_string(),
         ),
+    }
+}
+
+fn selected_asr_asset<'a>(
+    manifest: &'a AssetManifest,
+    settings: &LocalModelSettings,
+) -> Result<&'a AssetEntry, String> {
+    let asset = manifest
+        .find(&settings.asr_model_id)
+        .ok_or_else(|| format!("unknown ASR model id: {}", settings.asr_model_id))?;
+    if asset.role != AssetRole::Asr {
+        return Err(format!(
+            "asset {} is not an ASR model (role: {:?})",
+            asset.id, asset.role
+        ));
+    }
+    Ok(asset)
+}
+
+async fn ensure_assets_for_settings(
+    app: &AppHandle,
+    client_state: &AssetClient,
+    settings: &LocalModelSettings,
+) -> Result<(), String> {
+    let manifest = load_bundled_manifest(app);
+    if manifest.assets.is_empty() {
+        return Ok(());
+    }
+
+    let storage = app_support_asset_storage(app)?;
+    let asset = selected_asr_asset(&manifest, settings)?.clone();
+    match verify_asset(&asset, &storage) {
+        AssetIntegrity::Valid => Ok(()),
+        AssetIntegrity::Missing | AssetIntegrity::Corrupt => {
+            let _ = app.emit(
+                ASSET_DOWNLOAD_EVENT,
+                AssetDownloadStatus::Downloading {
+                    asset_id: asset.id.clone(),
+                    display_name: asset.display_name.clone(),
+                },
+            );
+            match repair_asset(&asset, &storage, &client_state.get()).await {
+                Ok(_) => {
+                    let _ = app.emit(ASSET_DOWNLOAD_EVENT, AssetDownloadStatus::Ready);
+                    Ok(())
+                }
+                Err(err) => {
+                    let message = format!("failed to download {}: {err}", asset.display_name);
+                    let _ = app.emit(
+                        ASSET_DOWNLOAD_EVENT,
+                        AssetDownloadStatus::Failed {
+                            message: message.clone(),
+                        },
+                    );
+                    Err(message)
+                }
+            }
+        }
     }
 }
 
@@ -228,14 +325,16 @@ pub fn local_model_settings(state: State<'_, AppState>) -> LocalModelSettings {
 }
 
 #[tauri::command]
-pub fn set_local_model_settings(
+pub async fn set_local_model_settings(
     app: AppHandle,
     state: State<'_, AppState>,
     inference_manager: State<'_, InferenceManager>,
+    asset_client: State<'_, AssetClient>,
     settings: LocalModelSettings,
 ) -> Result<LocalModelSettings, String> {
     let previous = state.local_model_settings();
     let settings = settings.normalized();
+    ensure_assets_for_settings(&app, asset_client.inner(), &settings).await?;
     state.set_local_model_settings(settings.clone());
     save_persisted_settings(&app, &settings)?;
     app.emit(
@@ -503,6 +602,8 @@ mod tests {
     };
     use crate::inference::resources::{CpuArchitecture, InferenceResourcePaths};
     use crate::state::RecognitionLanguage;
+    use wispergo_core::asset_manifest::AssetRole;
+    use wispergo_core::asset_storage::AssetStorage;
     use wispergo_core::domain::{PipelineResult, ProviderSource};
 
     struct TestAsrEngine {
@@ -540,6 +641,29 @@ mod tests {
                     confidence: None,
                 },
             })
+        }
+    }
+
+    fn empty_manifest() -> wispergo_core::asset_manifest::AssetManifest {
+        wispergo_core::asset_manifest::AssetManifest {
+            schema_version: 1,
+            assets: Vec::new(),
+        }
+    }
+
+    fn test_asr_manifest(id: &str) -> wispergo_core::asset_manifest::AssetManifest {
+        wispergo_core::asset_manifest::AssetManifest {
+            schema_version: 1,
+            assets: vec![wispergo_core::asset_manifest::AssetEntry {
+                id: id.to_string(),
+                role: wispergo_core::asset_manifest::AssetRole::Asr,
+                display_name: id.to_string(),
+                url: format!("https://example.test/{id}.bin"),
+                size: 10,
+                sha256: "dc41663fad7e4d1e9d5767b61ec63919d3a120dc3e12f34bb5375658bbaccfb1"
+                    .to_string(),
+                default: id == "medium",
+            }],
         }
     }
 
@@ -592,7 +716,8 @@ mod tests {
         );
         let settings = LocalModelSettings::default();
 
-        super::sync_asr_for_settings(&manager, &settings, Some(&resources));
+        let manifest = empty_manifest();
+        super::sync_asr_for_settings(&manager, &settings, Some(&resources), &manifest, None);
         super::sync_cleanup_for_settings(&manager, &settings, Some(&resources));
 
         assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
@@ -613,6 +738,47 @@ mod tests {
         assert_eq!(asr.transcript, "auto");
         assert_eq!(asr_loads.load(Ordering::SeqCst), 1);
         assert!(manager.asr().snapshot().loaded);
+        manager.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn asr_sync_uses_verified_app_support_asset_when_manifest_is_populated() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_asr_manifest("large-v3-turbo");
+        let asset_path = storage.asset_path("large-v3-turbo", AssetRole::Asr);
+        create_file(&asset_path);
+        let asr_loads = Arc::new(AtomicUsize::new(0));
+        let seen_asr_configs = Arc::new(Mutex::new(Vec::new()));
+        let manager = test_manager(
+            Arc::clone(&asr_loads),
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&seen_asr_configs),
+        );
+        let settings = LocalModelSettings {
+            asr_model_id: "large-v3-turbo".to_string(),
+            ..LocalModelSettings::default()
+        };
+
+        super::sync_asr_for_settings(&manager, &settings, None, &manifest, Some(&storage));
+
+        assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
+        assert!(!manager.asr().snapshot().loaded);
+        let output = manager
+            .asr()
+            .request(AsrInferenceRequest { audio: vec![0.1] })
+            .expect("asr request");
+        assert_eq!(output.transcript, "auto");
+        assert_eq!(asr_loads.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            seen_asr_configs
+                .lock()
+                .expect("seen asr configs")
+                .last()
+                .expect("loaded config")
+                .model_path,
+            asset_path
+        );
         manager.shutdown().expect("shutdown");
     }
 
@@ -654,6 +820,7 @@ mod tests {
             Arc::clone(&seen_asr_configs),
         );
 
+        let manifest = empty_manifest();
         super::sync_asr_for_settings(
             &manager,
             &LocalModelSettings {
@@ -661,6 +828,8 @@ mod tests {
                 ..LocalModelSettings::default()
             },
             Some(&resources),
+            &manifest,
+            None,
         );
         let first_generation = manager.asr().snapshot().generation;
         super::sync_asr_for_settings(
@@ -670,6 +839,8 @@ mod tests {
                 ..LocalModelSettings::default()
             },
             Some(&resources),
+            &manifest,
+            None,
         );
 
         assert_eq!(manager.asr().snapshot().generation, first_generation + 1);

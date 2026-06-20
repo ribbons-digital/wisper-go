@@ -242,11 +242,16 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
 ## Phase 5 — Model Tiering ⬜
 
-- **5.1 ASR: `medium` default + Accuracy Pack toggle** ⬜
+- **5.1 ASR: `medium` default + Accuracy Pack toggle** ✅ locally complete (PR needed)
   - Manifest entries for `medium` and `large-v3-turbo`; setting selects active
     ASR asset; switching to an absent asset triggers download.
-  - DoD: settings round-trip; download-before-activate; Auto/EN/ZH all work on
-    `medium`.
+  - Done locally: populated ASR manifest entries; user-facing/default id
+    `medium` points to quantized `ggml-medium-q5_0.bin`; added `asrModelId` to
+    local model settings and UI; app-support ASR Asset paths are used when the
+    manifest is populated; settings save downloads/verifies selected ASR before
+    activation; asset readiness distinguishes missing vs active downloading;
+    default downloads resync `InferenceManager` on success.
+  - Design approved: `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`.
 
 - **5.2 Cleanup: 0.5B default — EVAL GATE ⛔ until eval passes** ⬜
   - Run `docs/manual/offline-cleanup-eval.md` against Qwen2.5-0.5B.

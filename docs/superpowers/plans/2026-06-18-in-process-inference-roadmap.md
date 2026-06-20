@@ -283,9 +283,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - Verified before PR: cold native build dirs + plain `pnpm desktop:build`
     passed without manual env prefixes; desktop clippy passed.
 
-## Phase 6 — Retire Bundled Path 🟡
+## Phase 6 — Retire Bundled Path ✅
 
-- **6.1 Remove bundled-asset trees and scripts** 🟡
+- **6.1 Remove bundled-asset trees and scripts** ✅
   - Delete `apps/desktop/src-tauri/resources/bin/`,
     `apps/desktop/src-tauri/resources/models/`,
     `scripts/verify-inference-assets.sh`,
@@ -297,7 +297,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     no `models/`, no `.bin`/`.gguf`/`.dylib`/sidecar artifacts, and remains
     under the thin-app size budget; README updated; no dead references.
 
-- **6.2 Drop Intel targets and bundled fallback paths** 🟡
+- **6.2 Drop Intel targets and bundled fallback paths** ✅
   - Remove `macos-x86_64` paths, `CpuArchitecture`, and
     `InferenceResourcePaths` bundled-path resolution.
   - Remove legacy `LocalModelSettings` path fields (`whisperBinaryPath` /
@@ -305,11 +305,25 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - DoD: live model resolution is manifest/app-support based, with
     `WISPERGO_WHISPER_MODEL` retained as the ASR dev override; tests updated.
 
-- **6.3 README + docs refresh** 🟡
+- **6.3 README + docs refresh** ✅
   - Update README to describe thin-app + first-run download; mark 2026-05-01
     spec as superseded (already done in doc header).
   - DoD: README matches reality; stale instructions removed; runtime ASR smoke
     result documented before PR.
+
+## Language UX follow-up 🟡
+
+- **Fast language switch + mixed Chinese/English labeling** 🟡
+  - Issue: language-only switching re-resolved the ASR Asset through the normal
+    integrity path, which can hash the selected model file and make switching
+    feel delayed.
+  - Issue: Whisper Auto can bias toward the first spoken language; observed
+    mixed Chinese/English works better when forcing `zh` if Chinese content is
+    expected.
+  - DoD: language-only switches re-arm ASR from the present selected Asset
+    without re-hashing; normal model/settings resolution still verifies
+    integrity; UI/README present Chinese mode as Chinese / Mixed; tests updated;
+    manual switch smoke confirms the control feels immediate.
 
 ## Phase 7 — Streaming (follow-on, separate spec) ⬜
 

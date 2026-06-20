@@ -43,7 +43,7 @@ const POST_INSERT_EXPANDED_MS = 1500;
 const RECOGNITION_LANGUAGES = [
   { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
-  { value: "zh", label: "Chinese" },
+  { value: "zh", label: "Chinese / Mixed" }
 ] as const;
 
 export function App() {

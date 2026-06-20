@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during release-readiness planning)
-**Next session focus:** Review/approve the release-readiness and UI polish spec, then start R1 first-run setup and model readiness UX before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during R1 first-run setup planning)
+**Next session focus:** Review/approve the R1 implementation plan, then implement first-run setup and model readiness UX before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -44,6 +44,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Glossary:** `CONTEXT.md` — canonical terms (Asset, Asset Manifest, Model Pack, Inference Manager, Inference Engine, "offline-after-setup").
 - **PRODUCT.md** — strategic product context for UI/release polish.
 - **Release-readiness spec:** `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
+- **R1 implementation plan:** `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
 - **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
@@ -59,7 +60,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 planning | — |
+| Release readiness and UI polish | 🟡 R1 planning | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -121,11 +122,11 @@ From `AGENTS.md` and the user's documented workflow:
 
 ## Current slice: release readiness and UI polish planning
 
-**Issue:** The inference re-architecture is complete, but the app is not yet ready for non-developer GitHub Release users. Public release needs first-run setup, model readiness UX, release packaging, signing/notarization, icon polish, recording visual polish, CI, and contributor docs.
+**Issue:** A fresh end-user install needs guided setup for permissions and required model downloads, plus clear behavior if the shortcut is used before dictation is ready.
 
-**Implementation status:** In progress on branch `release-readiness-design`. Added `PRODUCT.md` and drafted `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`. Roadmap now treats Phase 7 streaming as optional/deferred and makes release readiness the next track.
+**Implementation status:** In progress on branch `r1-first-run-setup-readiness`. The R1 implementation plan is saved at `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`; no production code has been changed yet.
 
-**Next step:** User reviews/approves the release-readiness spec. If approved, start R1 first-run setup and model readiness UX because it is the highest-value blocker for end users installing the app.
+**Next step:** User approves the R1 plan, then implementation starts with RED tests for the Settings setup checklist.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -168,4 +169,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, and compact ZH label is merged via PR #20. Release readiness planning is in progress via PRODUCT.md and the release-readiness spec. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, and release-readiness design is merged via PR #21. R1 implementation planning is in progress via `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

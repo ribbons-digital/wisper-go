@@ -13,18 +13,20 @@ Use this fixture to compare raw ASR output against bundled offline cleanup outpu
 
 ## Evaluation cases
 
-| Case | Spoken content | Expected cleanup behavior | Raw ASR | Cleanup output | ASR ms | Cleanup ms | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| English sentence | today we reviewed the release checklist and fixed the last offline inference issue | Add sentence capitalization and punctuation only. |  |  |  |  |  |
-| English question | can you send the updated notes before the meeting starts | Add capitalization and a question mark only. |  |  |  |  |  |
-| Chinese sentence | 今天我们完成了离线语音识别和标点清理测试 | Add appropriate Chinese punctuation only. |  |  |  |  |  |
-| Chinese question | 你明天可以帮我检查这个离线版本吗 | Add appropriate Chinese question punctuation only. |  |  |  |  |  |
-| Mixed English Chinese | please remind 小王 to review the offline build tonight | Preserve English and Chinese text, add punctuation/capitalization only. |  |  |  |  |  |
-| Already punctuated | Wispergo already works offline, and cleanup should not rewrite this sentence. | Leave existing words and punctuation intact except for clearly necessary minimal cleanup. |  |  |  |  |  |
+| Case | Spoken content | Expected behavior | Raw ASR | Model suggestion | Safety decision | Final inserted output | ASR ms | Cleanup ms | Safety notes | Quality notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| English sentence | today we reviewed the release checklist and fixed the last offline inference issue | Final output must preserve all words; accepted suggestion may add sentence capitalization/punctuation. |  |  |  |  |  |  |  |  |
+| English question | can you send the updated notes before the meeting starts | Final output must preserve all words; accepted suggestion may add capitalization and a question mark. |  |  |  |  |  |  |  |  |
+| Chinese sentence | 今天我们完成了离线语音识别和标点清理测试 | Final output must preserve every Chinese character in order; accepted suggestion may add appropriate Chinese punctuation. |  |  |  |  |  |  |  |  |
+| Chinese question | 你明天可以帮我检查这个离线版本吗 | Final output must preserve every Chinese character in order; accepted suggestion may add appropriate Chinese question punctuation. |  |  |  |  |  |  |  |  |
+| Mixed English Chinese | please remind 小王 to review the offline build tonight | Final output must preserve English words and Chinese characters exactly; unsafe suggestions fall back to raw ASR. |  |  |  |  |  |  |  |  |
+| Already punctuated | Wispergo already works offline, and cleanup should not rewrite this sentence. | Final output should preserve existing words and punctuation unless a safe punctuation-only change is clearly beneficial. |  |  |  |  |  |  |  |  |
 
 ## Pass criteria
 
-- Cleanup does not translate between languages or scripts.
-- Cleanup does not meaningfully add, remove, or rewrite words.
+- Final inserted output does not translate between languages or scripts.
+- Final inserted output does not meaningfully add, remove, or rewrite words.
+- Safe raw-ASR fallback counts as a safety pass when model suggestion is unsafe.
+- Punctuation quality is recorded separately from safety; lack of punctuation improvement is not a safety failure.
 - Apple Silicon latency is acceptable for normal dictation use.
 - Intel Macs may fall back to raw ASR when cleanup is unavailable or too slow.

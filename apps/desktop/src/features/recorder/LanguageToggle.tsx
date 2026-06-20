@@ -96,5 +96,8 @@ function languageIndicator(language: RecognitionLanguage) {
   if (language === "auto") {
     return <img className="language-current-icon" src={GLOBE_ICON_URL} alt="" aria-hidden="true" />;
   }
+  if (language === "zh") {
+    return "ZH/Mix";
+  }
   return language.toUpperCase();
 }

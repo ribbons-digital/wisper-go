@@ -117,6 +117,16 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("explains Chinese mixed-language recognition mode", () => {
+    renderSettingsPanel();
+
+    expect(
+      screen.getByText(
+        "Use Chinese / Mixed for Chinese-English dictation; Auto can bias toward the first language spoken.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("explains full cleanup pack activation", () => {
     renderSettingsPanel();
 

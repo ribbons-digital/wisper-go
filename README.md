@@ -7,9 +7,9 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
 - Hold `Command + Shift + Space` to dictate.
 - In-process offline speech recognition with whisper.cpp after first-run model download.
 - In-process offline cleanup for punctuation-only cleanup or full cleanup/classification after model download, without translating original language.
-- Recognition language modes: Auto, English, and Chinese.
+- Recognition language modes: Auto, English, and Chinese / Mixed Chinese-English.
 - Floating status-only recorder pill.
-- Separate floating language control that cycles Auto → EN → ZH.
+- Separate floating language control that cycles Auto → EN → ZH/Mix.
 - macOS microphone and accessibility permission handling.
 - Clipboard/accessibility-based insertion with diagnostics when direct insertion is unavailable.
 
@@ -20,9 +20,9 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
 3. Grant microphone permission.
 4. Grant accessibility permission so Wispergo can insert text into other apps.
 5. Choose a recognition language:
-   - **Auto**: let Whisper detect the language.
+   - **Auto**: let Whisper detect the language. Auto can bias toward the first spoken language.
    - **English**: passes `--language en`.
-   - **Chinese**: passes `--language zh`.
+   - **Chinese / Mixed Chinese-English**: passes `--language zh`; recommended for Chinese or mixed Chinese/English dictation.
 6. Choose a cleanup mode:
    - **Off**: insert the raw Whisper transcript.
    - **Punctuation only**: default; uses local cleanup to add punctuation/capitalization only.
@@ -175,4 +175,4 @@ The language toggle is a separate Tauri window. On macOS, Wispergo uses native m
 ## Notes
 
 - Wispergo is local-first: speech recognition and cleanup run offline by default.
-- Chinese recognition uses Whisper’s generic `zh` language code; Wispergo does not convert between Simplified and Traditional Chinese.
+- Chinese / Mixed recognition uses Whisper’s generic `zh` language code; Wispergo does not convert between Simplified and Traditional Chinese.

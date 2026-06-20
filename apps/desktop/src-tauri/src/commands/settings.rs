@@ -106,6 +106,32 @@ fn sync_asr_for_settings(
     }
 }
 
+fn sync_asr_for_language_switch(
+    inference_manager: &InferenceManager,
+    settings: &LocalModelSettings,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
+) {
+    match resolve_asr_model_path_for_language_switch(settings, manifest, storage) {
+        Ok(model_path) => {
+            if let Err(err) = inference_manager.asr().arm(AsrEngineConfig {
+                model_path,
+                language: settings
+                    .recognition_language
+                    .whisper_code()
+                    .map(str::to_string),
+            }) {
+                eprintln!("ASR inference manager language re-arm failed: {err}");
+            }
+        }
+        Err(message) => {
+            if let Err(err) = inference_manager.asr().mark_unavailable(message) {
+                eprintln!("ASR inference manager language re-arm unavailable sync failed: {err}");
+            }
+        }
+    }
+}
+
 fn sync_cleanup_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
@@ -209,6 +235,23 @@ fn resolve_asr_model_path_for_settings(
     manifest: &AssetManifest,
     storage: Option<&AssetStorage>,
 ) -> Result<PathBuf, String> {
+    resolve_asr_model_path(settings, manifest, storage, true)
+}
+
+fn resolve_asr_model_path_for_language_switch(
+    settings: &LocalModelSettings,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
+) -> Result<PathBuf, String> {
+    resolve_asr_model_path(settings, manifest, storage, false)
+}
+
+fn resolve_asr_model_path(
+    settings: &LocalModelSettings,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
+    verify_integrity: bool,
+) -> Result<PathBuf, String> {
     if let Some(env_model) = env::var_os("WISPERGO_WHISPER_MODEL").map(PathBuf::from) {
         return Ok(env_model);
     }
@@ -225,6 +268,18 @@ fn resolve_asr_model_path_for_settings(
     })?;
     let asset = selected_asr_asset(manifest, settings)?;
     let path = storage.asset_path(&asset.id, asset.role);
+
+    if !verify_integrity {
+        return if path.exists() {
+            Ok(path)
+        } else {
+            Err(format!(
+                "ASR model '{}' is not downloaded yet. Download models before dictating.",
+                asset.display_name
+            ))
+        };
+    }
+
     match verify_asset(asset, storage) {
         AssetIntegrity::Valid => Ok(path),
         AssetIntegrity::Missing => Err(format!(
@@ -252,6 +307,19 @@ fn selected_asr_asset<'a>(
         ));
     }
     Ok(asset)
+}
+
+fn is_language_only_settings_change(
+    previous: &LocalModelSettings,
+    next: &LocalModelSettings,
+) -> bool {
+    if previous.recognition_language == next.recognition_language {
+        return false;
+    }
+
+    let mut expected = previous.clone();
+    expected.recognition_language = next.recognition_language;
+    &expected == next
 }
 
 fn required_assets_for_settings<'a>(
@@ -384,7 +452,12 @@ pub async fn set_local_model_settings(
 ) -> Result<LocalModelSettings, String> {
     let previous = state.local_model_settings();
     let settings = settings.normalized();
-    ensure_assets_for_settings(&app, asset_client.inner(), &settings).await?;
+    let language_only_change = is_language_only_settings_change(&previous, &settings);
+
+    if !language_only_change {
+        ensure_assets_for_settings(&app, asset_client.inner(), &settings).await?;
+    }
+
     state.set_local_model_settings(settings.clone());
     save_persisted_settings(&app, &settings)?;
     app.emit(
@@ -392,7 +465,16 @@ pub async fn set_local_model_settings(
         settings.recognition_language,
     )
     .map_err(|err| err.to_string())?;
-    if previous != settings {
+    if language_only_change {
+        let manifest = load_bundled_manifest(&app);
+        let storage = app_support_asset_storage(&app).ok();
+        sync_asr_for_language_switch(
+            inference_manager.inner(),
+            &settings,
+            &manifest,
+            storage.as_ref(),
+        );
+    } else if previous != settings {
         sync_inference_manager_for_settings(&app, inference_manager.inner(), &settings);
     }
     Ok(settings.to_frontend())
@@ -416,7 +498,14 @@ pub fn set_recognition_language(
     save_persisted_settings(&app, &settings)?;
     app.emit(RECOGNITION_LANGUAGE_CHANGED_EVENT, language)
         .map_err(|err| err.to_string())?;
-    sync_inference_manager_for_settings(&app, inference_manager.inner(), &settings);
+    let manifest = load_bundled_manifest(&app);
+    let storage = app_support_asset_storage(&app).ok();
+    sync_asr_for_language_switch(
+        inference_manager.inner(),
+        &settings,
+        &manifest,
+        storage.as_ref(),
+    );
     Ok(language)
 }
 
@@ -890,6 +979,49 @@ mod tests {
             asset_path
         );
         manager.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn language_only_settings_change_detects_no_asset_change() {
+        let previous = LocalModelSettings::default();
+        let mut next = previous.clone();
+        next.recognition_language = RecognitionLanguage::Zh;
+
+        assert!(super::is_language_only_settings_change(&previous, &next));
+
+        let mut model_change = next.clone();
+        model_change.asr_model_id = "large-v3-turbo".to_string();
+        assert!(!super::is_language_only_settings_change(
+            &previous,
+            &model_change
+        ));
+
+        assert!(!super::is_language_only_settings_change(
+            &previous, &previous
+        ));
+    }
+
+    #[test]
+    fn normal_asr_resolution_rejects_corrupt_asset_but_language_switch_uses_present_asset() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_asr_manifest("medium");
+        let asset_path = storage.asset_path("medium", AssetRole::Asr);
+        if let Some(parent) = asset_path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent");
+        }
+        std::fs::write(&asset_path, "corrupt but present").expect("write corrupt asset");
+        let settings = LocalModelSettings::default();
+
+        let normal_error =
+            super::resolve_asr_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect_err("normal ASR resolution verifies integrity");
+        assert!(normal_error.contains("is corrupt"));
+
+        let language_switch_path =
+            super::resolve_asr_model_path_for_language_switch(&settings, &manifest, Some(&storage))
+                .expect("language-only switch should avoid re-hashing the selected ASR asset");
+        assert_eq!(language_switch_path, asset_path);
     }
 
     #[test]

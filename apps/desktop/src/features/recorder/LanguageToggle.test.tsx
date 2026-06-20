@@ -6,7 +6,7 @@ import { LanguageToggle } from "./LanguageToggle";
 const languages = [
   { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
-  { value: "zh", label: "Chinese" },
+  { value: "zh", label: "Chinese / Mixed" },
 ] as const;
 
 describe("LanguageToggle", () => {
@@ -43,7 +43,7 @@ describe("LanguageToggle", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Recognition language: Chinese" })).toHaveTextContent("ZH");
+    expect(screen.getByRole("button", { name: "Recognition language: Chinese / Mixed" })).toHaveTextContent("ZH/Mix");
   });
 
   it("cycles when the primary language button is clicked", async () => {
@@ -103,7 +103,7 @@ describe("LanguageToggle", () => {
     );
 
     expect(screen.getByRole("menuitemradio", { name: "English" })).toHaveAttribute("aria-checked", "true");
-    await user.click(screen.getByRole("menuitemradio", { name: "Chinese" }));
+    await user.click(screen.getByRole("menuitemradio", { name: "Chinese / Mixed" }));
 
     expect(onSelect).toHaveBeenCalledWith("zh");
   });

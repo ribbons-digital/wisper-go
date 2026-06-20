@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during Phase 6 bundled-path retirement)
-**Next session focus:** Finish Phase 6, verify thin macOS bundle + ASR smoke, open PR, wait for user merge, then sync `main` before considering Phase 7. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during language UX follow-up)
+**Next session focus:** Finish the language UX follow-up PR, wait for user merge, then sync `main` before considering Phase 7. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -18,10 +18,11 @@
 - **Phase 5.2 is complete and merged** (PR #15): raw-model eval failed for Qwen2.5 0.5B, 1.5B, and 3B, so Punctuation-only now treats LLM output as an untrusted suggestion. A deterministic safety gate accepts only punctuation/capitalization-only changes and falls back to raw ASR for unsafe suggestions. The safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset is in the manifest, and `docs/manual/offline-cleanup-eval.md` records model suggestion, safety decision, final inserted output, safety/quality notes, and latency.
 - **Phase 5.3 is complete and merged** (PR #16): adds the Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, resolves Full cleanup from the verified app-support 3B Asset, downloads/verifies the Full-cleanup Pack before activation, leaves previous settings active on failure, keeps Punctuation-only unaffected by missing 3B, and preserves the `WISPERGO_CLEANUP_BACKEND=ollama` dev override without requiring local `cleanup_full` Assets.
 - **macOS deployment-target build fix is complete and merged** (PR #17): plain `pnpm desktop:build` no longer requires manual deployment-target env prefixes.
+- **Phase 6 is complete and merged** (PR #18): retired bundled sidecar/model paths, kept only the Asset Manifest in the app bundle, removed `InferenceResourcePaths` / `CpuArchitecture` and legacy settings path fields, added a thin-bundle check, and refreshed README/docs for thin-app + first-run downloads.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-5.3 and the macOS deployment-target build fix are merged. Phase 6 is in progress to retire bundled sidecar/model paths, keep only the Asset Manifest in the app bundle, and finish the thin-app README/docs cleanup.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6 and the macOS deployment-target build fix are merged. A language UX follow-up is in progress to make language-only switching fast and clarify Chinese / mixed Chinese-English mode.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -39,7 +40,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
 - **Glossary:** `CONTEXT.md` — canonical terms (Asset, Asset Manifest, Model Pack, Inference Manager, Inference Engine, "offline-after-setup").
-- **README** — already updated for in-process ASR; full refresh is Phase 6.
+- **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
 
@@ -51,7 +52,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
 | 4 InferenceManager lifecycle | ✅ | PRs #11, #12 |
 | 5 Model tiering + readiness gate | ✅ | PRs #14, #15, #16 |
-| 6 Retire bundled path + Intel + README | 🟡 in progress | — |
+| 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | 7 Streaming (follow-on) | ⬜ | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -111,15 +112,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: Phase 6 — retire bundled path + Intel + README
+## Current slice: language UX follow-up
 
-**Implementation status:** In progress on branch `phase-6-retire-bundled-path`. The approved scope deletes `apps/desktop/src-tauri/resources/bin/` and `apps/desktop/src-tauri/resources/models/`, keeps and narrowly bundles only `resources/models.manifest.json`, removes `InferenceResourcePaths` / `CpuArchitecture` and bundled fallback path resolution, drops legacy settings path fields while preserving serde compatibility for old saved keys, removes the old offline-release scripts, and refreshes README/docs for thin-app + first-run Asset downloads.
+**Issue:** Manual smoke after Phase 6 showed two language UX problems: language switching had a visible delay, and Whisper Auto handled Chinese-first mixed Chinese/English better than English-first mixed speech.
 
-**Hard gates:** `pnpm desktop:build`; thin bundle check with no `bin/`, no `models/`, no `.bin`/`.gguf`/`.dylib`/sidecar artifacts and under the size budget; Rust build/tests/clippy including desktop clippy; `pnpm test:ts`; manual runtime ASR smoke result documented.
+**Implementation status:** In progress on branch `language-ux-fast-switch-mixed-label`. The backend change makes language-only switches re-arm ASR from the present selected Asset without re-hashing the model file; normal model/settings resolution still verifies integrity. The frontend/docs change labels `zh` as Chinese / Mixed to guide mixed Chinese-English dictation toward forced `zh` instead of Auto.
 
-**Verification status:** Automated gates passed. Manual smoke with the real app-support `medium` Asset and `recognitionLanguage=zh` passed: recognition worked and insertion was no longer clipboard-only after launching the app bundle. Observations to keep out of Phase 6 scope unless user asks: Auto mode handles Chinese-first mixed Chinese/English better than English-first mixed speech, and language switching has a short visible delay.
-
-**Next step:** Open PR and wait for user merge before starting Phase 7.
+**Next step:** Finish verification, manually smoke language switching, open PR, and wait for user merge before starting Phase 7.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -162,4 +161,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 5.3 is merged via PR #16 and the macOS build-fix is merged via PR #17. Phase 6 desktop Rust tests have passed after removing bundled fallback paths. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18. Language UX targeted RED/GREEN tests have been added for fast language-only ASR path resolution and Chinese / Mixed UI copy. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

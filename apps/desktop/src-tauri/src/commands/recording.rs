@@ -6,6 +6,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, State};
 use wispergo_core::audio::{trim_silence, VadConfig};
+use wispergo_core::cleanup_safety::is_safe_punctuation_cleanup;
 use wispergo_core::domain::PipelineResult;
 use wispergo_core::ollama::{OllamaCleanupProvider, DEFAULT_OLLAMA_MODEL};
 use wispergo_core::providers::{AsrOutput, CleanupInput, TextCleanupProvider};
@@ -310,25 +311,26 @@ async fn apply_cleanup_mode(
             if let Some(cleanup) = cleanup {
                 return cleanup
                     .clean_punctuation_only(CleanupInput {
-                        transcript: asr.transcript,
+                        transcript: asr.transcript.clone(),
                         selected_text: None,
                         timeout: PUNCTUATION_CLEANUP_TIMEOUT,
                     })
                     .await
-                    .map(|text| PipelineResult::InsertText {
-                        text,
-                        source: asr.source,
-                        confidence: asr.confidence,
-                    })
+                    .ok()
+                    .and_then(|text| safe_punctuation_result(&asr, text))
                     .unwrap_or(raw_result);
             }
 
             inference_manager
                 .cleanup()
                 .request(CleanupInferenceRequest {
-                    transcript: asr.transcript,
+                    transcript: asr.transcript.clone(),
                 })
-                .map(|output| output.result)
+                .ok()
+                .and_then(|output| match output.result {
+                    PipelineResult::InsertText { text, .. } => safe_punctuation_result(&asr, text),
+                    _ => None,
+                })
                 .unwrap_or(raw_result)
         }
         CleanupMode::FullCleanup => {
@@ -353,6 +355,18 @@ async fn apply_cleanup_mode(
                 .unwrap_or(raw_result)
         }
     }
+}
+
+fn safe_punctuation_result(asr: &AsrOutput, candidate: String) -> Option<PipelineResult> {
+    if !is_safe_punctuation_cleanup(&asr.transcript, &candidate) {
+        return None;
+    }
+
+    Some(PipelineResult::InsertText {
+        text: candidate,
+        source: asr.source,
+        confidence: asr.confidence,
+    })
 }
 
 fn looks_reasonably_punctuated(text: &str) -> bool {
@@ -611,6 +625,114 @@ mod tests {
                 text: "Hello, world.".to_string(),
                 source: ProviderSource::Local,
                 confidence: Some(0.82),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_rejects_rewritten_provider_output() {
+        let provider = FakeTextCleanupProvider::new(
+            Ok("Please remind 王 to review the offline build tonight.".to_string()),
+            Ok(CleanupOutput {
+                result: PipelineResult::InsertText {
+                    text: "unused".to_string(),
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            }),
+        );
+        let asr = AsrOutput {
+            transcript: "please remind 小王 to review the offline build tonight".to_string(),
+            confidence: Some(0.92),
+            source: ProviderSource::Local,
+        };
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager unused".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
+
+        let result = super::apply_cleanup_mode(
+            asr,
+            CleanupMode::PunctuationOnly,
+            Some(&provider as &dyn TextCleanupProvider),
+            &manager,
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "please remind 小王 to review the offline build tonight".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.92),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_accepts_safe_provider_output() {
+        let provider = FakeTextCleanupProvider::new(
+            Ok("Please remind 小王 to review the offline build tonight.".to_string()),
+            Ok(CleanupOutput {
+                result: PipelineResult::InsertText {
+                    text: "unused".to_string(),
+                    source: ProviderSource::Local,
+                    confidence: None,
+                },
+            }),
+        );
+        let asr = AsrOutput {
+            transcript: "please remind 小王 to review the offline build tonight".to_string(),
+            confidence: Some(0.92),
+            source: ProviderSource::Local,
+        };
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "manager unused".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
+
+        let result = super::apply_cleanup_mode(
+            asr,
+            CleanupMode::PunctuationOnly,
+            Some(&provider as &dyn TextCleanupProvider),
+            &manager,
+        )
+        .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "Please remind 小王 to review the offline build tonight.".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.92),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn punctuation_cleanup_rejects_rewritten_manager_output() {
+        let asr = AsrOutput {
+            transcript: "please remind 小王 to review the offline build tonight".to_string(),
+            confidence: Some(0.92),
+            source: ProviderSource::Local,
+        };
+        let manager = manager_for_cleanup_result(PipelineResult::InsertText {
+            text: "Please remind 王 to review the offline build tonight.".to_string(),
+            source: ProviderSource::Local,
+            confidence: None,
+        });
+
+        let result = super::apply_cleanup_mode(asr, CleanupMode::PunctuationOnly, None, &manager)
+            .await;
+
+        assert_eq!(
+            result,
+            PipelineResult::InsertText {
+                text: "please remind 小王 to review the offline build tonight".to_string(),
+                source: ProviderSource::Local,
+                confidence: Some(0.92),
             }
         );
     }

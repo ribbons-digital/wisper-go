@@ -92,7 +92,13 @@ pub fn sync_inference_manager_for_settings(
         &manifest,
         storage.as_ref(),
     );
-    sync_cleanup_for_settings(inference_manager, settings, resources.as_ref());
+    sync_cleanup_for_settings(
+        inference_manager,
+        settings,
+        resources.as_ref(),
+        &manifest,
+        storage.as_ref(),
+    );
 }
 
 fn sync_asr_for_settings(
@@ -126,6 +132,8 @@ fn sync_cleanup_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
     resources: Option<&InferenceResourcePaths>,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
 ) {
     if !managed_cleanup_runtime_enabled(settings) {
         if let Err(err) = inference_manager.cleanup().disable() {
@@ -134,28 +142,19 @@ fn sync_cleanup_for_settings(
         return;
     }
 
-    let Some(resources) = resources else {
-        if let Err(err) = inference_manager
-            .cleanup()
-            .mark_unavailable("Offline punctuation assets are missing. Reinstall Wispergo.")
-        {
-            eprintln!("cleanup inference manager unavailable sync failed: {err}");
-        }
-        return;
-    };
-
-    if !resources.cleanup_model_path.exists() {
-        if let Err(err) = inference_manager
-            .cleanup()
-            .mark_unavailable("Offline punctuation assets are missing. Reinstall Wispergo.")
-        {
-            eprintln!("cleanup inference manager unavailable sync failed: {err}");
-        }
-        return;
-    }
+    let cleanup_model_path =
+        match resolve_cleanup_model_path_for_settings(settings, resources, manifest, storage) {
+            Ok(path) => path,
+            Err(message) => {
+                if let Err(err) = inference_manager.cleanup().mark_unavailable(message) {
+                    eprintln!("cleanup inference manager unavailable sync failed: {err}");
+                }
+                return;
+            }
+        };
 
     if let Err(err) = inference_manager.cleanup().arm(CleanupEngineConfig {
-        model_path: resources.cleanup_model_path.clone(),
+        model_path: cleanup_model_path,
         mode: match settings.cleanup_mode {
             CleanupMode::Off => unreachable!("cleanup off handled above"),
             CleanupMode::PunctuationOnly => CleanupInferenceMode::PunctuationOnly,
@@ -164,6 +163,71 @@ fn sync_cleanup_for_settings(
     }) {
         eprintln!("cleanup inference manager arm failed: {err}");
     }
+}
+
+fn resolve_cleanup_model_path_for_settings(
+    settings: &LocalModelSettings,
+    resources: Option<&InferenceResourcePaths>,
+    manifest: &AssetManifest,
+    storage: Option<&AssetStorage>,
+) -> Result<PathBuf, String> {
+    let role = match settings.cleanup_mode {
+        CleanupMode::Off => return Err("cleanup is disabled".to_string()),
+        CleanupMode::PunctuationOnly => AssetRole::CleanupPunctuation,
+        CleanupMode::FullCleanup => AssetRole::CleanupFull,
+    };
+
+    if !manifest.assets.is_empty() {
+        let storage = storage.ok_or_else(|| {
+            "Local cleanup asset storage is unavailable. Reopen Wispergo and try again.".to_string()
+        })?;
+        let asset = selected_cleanup_asset(manifest, role)?;
+        let path = storage.asset_path(&asset.id, asset.role);
+        return match verify_asset(asset, storage) {
+            AssetIntegrity::Valid => Ok(path),
+            AssetIntegrity::Missing => Err(match role {
+                AssetRole::CleanupPunctuation => format!(
+                    "cleanup punctuation asset '{}' is not downloaded yet",
+                    asset.id
+                ),
+                AssetRole::CleanupFull => {
+                    format!("full cleanup asset '{}' is not downloaded yet", asset.id)
+                }
+                AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+            }),
+            AssetIntegrity::Corrupt => Err(match role {
+                AssetRole::CleanupPunctuation => {
+                    format!("cleanup punctuation asset '{}' is corrupt", asset.id)
+                }
+                AssetRole::CleanupFull => format!("full cleanup asset '{}' is corrupt", asset.id),
+                AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+            }),
+        };
+    }
+
+    resources
+        .filter(|resources| resources.cleanup_model_path.exists())
+        .map(|resources| resources.cleanup_model_path.clone())
+        .ok_or_else(|| {
+            "Local cleanup is not configured. Download cleanup models or reinstall Wispergo."
+                .to_string()
+        })
+}
+
+fn selected_cleanup_asset(
+    manifest: &AssetManifest,
+    role: AssetRole,
+) -> Result<&AssetEntry, String> {
+    manifest
+        .by_role(role)
+        .find(|asset| asset.default)
+        .ok_or_else(|| match role {
+            AssetRole::CleanupPunctuation => {
+                "no default cleanup punctuation asset is configured".to_string()
+            }
+            AssetRole::CleanupFull => "no default full cleanup asset is configured".to_string(),
+            AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+        })
 }
 
 fn resolve_asr_model_path_for_settings(
@@ -667,6 +731,25 @@ mod tests {
         }
     }
 
+    fn test_cleanup_manifest(
+        id: &str,
+        role: AssetRole,
+    ) -> wispergo_core::asset_manifest::AssetManifest {
+        wispergo_core::asset_manifest::AssetManifest {
+            schema_version: 1,
+            assets: vec![wispergo_core::asset_manifest::AssetEntry {
+                id: id.to_string(),
+                role,
+                display_name: id.to_string(),
+                url: format!("https://example.test/{id}.gguf"),
+                size: 10,
+                sha256: "dc41663fad7e4d1e9d5767b61ec63919d3a120dc3e12f34bb5375658bbaccfb1"
+                    .to_string(),
+                default: true,
+            }],
+        }
+    }
+
     fn create_file(path: &std::path::Path) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).expect("create parent");
@@ -718,7 +801,7 @@ mod tests {
 
         let manifest = empty_manifest();
         super::sync_asr_for_settings(&manager, &settings, Some(&resources), &manifest, None);
-        super::sync_cleanup_for_settings(&manager, &settings, Some(&resources));
+        super::sync_cleanup_for_settings(&manager, &settings, Some(&resources), &manifest, None);
 
         assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
         assert_eq!(
@@ -783,6 +866,129 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_uses_verified_app_support_punctuation_asset_when_manifest_populated() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest =
+            test_cleanup_manifest("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        let asset_path = storage.asset_path("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        create_file(&asset_path);
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        let path = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect("cleanup path");
+
+        assert_eq!(path, asset_path);
+    }
+
+    #[test]
+    fn cleanup_punctuation_missing_asset_reports_unavailable_path_error() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest =
+            test_cleanup_manifest("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        let error = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect_err("missing cleanup asset should report unavailable");
+
+        assert!(error
+            .contains("cleanup punctuation asset 'qwen2.5-0.5b-instruct' is not downloaded yet"));
+    }
+
+    #[test]
+    fn cleanup_punctuation_corrupt_asset_reports_unavailable_path_error() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest =
+            test_cleanup_manifest("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        let asset_path = storage.asset_path("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        if let Some(parent) = asset_path.parent() {
+            std::fs::create_dir_all(parent).expect("create parent");
+        }
+        std::fs::write(&asset_path, "corrupt asset").expect("write corrupt asset");
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+
+        let error = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect_err("corrupt cleanup asset should report unavailable");
+
+        assert!(error.contains("cleanup punctuation asset 'qwen2.5-0.5b-instruct' is corrupt"));
+    }
+
+    #[test]
+    fn full_cleanup_does_not_use_punctuation_asset_when_manifest_populated() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest =
+            test_cleanup_manifest("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        let asset_path = storage.asset_path("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation);
+        create_file(&asset_path);
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::FullCleanup,
+            ..LocalModelSettings::default()
+        };
+
+        let error = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect_err("full cleanup should require a cleanup_full default");
+
+        assert!(error.contains("no default full cleanup asset is configured"));
+    }
+
+    #[test]
+    fn cleanup_uses_bundled_path_only_when_manifest_is_empty() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let resources = InferenceResourcePaths::from_resource_root_for_arch(
+            tempdir.path().to_path_buf(),
+            CpuArchitecture::Aarch64,
+        );
+        create_file(&resources.cleanup_model_path);
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::PunctuationOnly,
+            ..LocalModelSettings::default()
+        };
+        let manifest = empty_manifest();
+
+        let path = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            Some(&resources),
+            &manifest,
+            None,
+        )
+        .expect("bundled cleanup path");
+
+        assert_eq!(path, resources.cleanup_model_path);
+    }
+
+    #[test]
     fn cleanup_mode_off_disables_cleanup_slot() {
         let manager = test_manager(
             Arc::new(AtomicUsize::new(0)),
@@ -794,7 +1000,8 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        super::sync_cleanup_for_settings(&manager, &settings, None);
+        let manifest = empty_manifest();
+        super::sync_cleanup_for_settings(&manager, &settings, None, &manifest, None);
 
         assert_eq!(
             manager.cleanup().status().state,

@@ -53,6 +53,7 @@ export function SettingsPanel({
   const [assetStatus, setAssetStatus] = useState<AssetDownloadStatus | null>(null);
   const [downloadingAssets, setDownloadingAssets] = useState(false);
   const cleanupEnabled = draftModelSettings.cleanupMode !== "off";
+  const setup = setupSummary(microphone, accessibility, assetStatus);
 
   useEffect(() => {
     setDraftModelSettings(modelSettings);
@@ -93,6 +94,21 @@ export function SettingsPanel({
 
   return (
     <section className="settings-panel" aria-label="Settings">
+      <div className="setup-summary" aria-label="Setup status">
+        <div>
+          <h2>{setup.ready ? "Ready for dictation" : "Setup needed"}</h2>
+          <p>
+            {setup.ready
+              ? "Wispergo can record, transcribe, and insert text."
+              : "Finish these steps before relying on dictation."}
+          </p>
+        </div>
+        <ul className="setup-checklist" aria-label="Setup checklist">
+          <SetupChecklistItem label="Microphone permission" status={setup.microphone} />
+          <SetupChecklistItem label="Accessibility permission" status={setup.accessibility} />
+          <SetupChecklistItem label="Required local models" status={setup.models} />
+        </ul>
+      </div>
       <div className="shortcut-row">
         <span>Shortcut</span>
         <strong>Hold Command + Shift + Space</strong>
@@ -209,6 +225,51 @@ export function SettingsPanel({
       </div>
       <p>Fallback policy: {fallbackPolicy}</p>
     </section>
+  );
+}
+
+type SetupItemStatus = "Ready" | "Checking" | "Needs permission" | "Needs download" | "Downloading" | "Failed";
+
+type SetupSummary = {
+  ready: boolean;
+  microphone: SetupItemStatus;
+  accessibility: SetupItemStatus;
+  models: SetupItemStatus;
+};
+
+function setupSummary(
+  microphone: MicrophoneStatus,
+  accessibility: AccessibilityStatus,
+  assetStatus: AssetDownloadStatus | null,
+): SetupSummary {
+  const microphoneReady = microphone.granted;
+  const accessibilityReady = accessibility.granted;
+  const models = modelSetupStatus(assetStatus);
+  const modelsReady = models === "Ready";
+
+  return {
+    ready: microphoneReady && accessibilityReady && modelsReady,
+    microphone: microphoneReady ? "Ready" : "Needs permission",
+    accessibility: accessibilityReady ? "Ready" : "Needs permission",
+    models,
+  };
+}
+
+function modelSetupStatus(status: AssetDownloadStatus | null): SetupItemStatus {
+  if (!status) return "Checking";
+  if (status.state === "ready") return "Ready";
+  if (status.state === "missing") return "Needs download";
+  if (status.state === "downloading") return "Downloading";
+  return "Failed";
+}
+
+function SetupChecklistItem({ label, status }: { label: string; status: SetupItemStatus }) {
+  const ready = status === "Ready";
+  return (
+    <li>
+      <span>{label}</span>
+      <strong className={ready ? "is-ready" : "needs-setup"}>{status}</strong>
+    </li>
   );
 }
 

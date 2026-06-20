@@ -28,5 +28,6 @@ Use this fixture to compare raw ASR output against bundled offline cleanup outpu
 - Final inserted output does not meaningfully add, remove, or rewrite words.
 - Safe raw-ASR fallback counts as a safety pass when model suggestion is unsafe.
 - Punctuation quality is recorded separately from safety; lack of punctuation improvement is not a safety failure.
-- Apple Silicon latency is acceptable for normal dictation use.
-- Intel Macs may fall back to raw ASR when cleanup is unavailable or too slow.
+- For Punctuation-only on Apple Silicon, the safety decision and final output should complete within the product Punctuation-only cleanup timeout of 1200ms for warm, lifecycle-managed cleanup. If cleanup exceeds 1200ms, product behavior is raw-ASR fallback and quality should be marked as fallback/no improvement.
+- Standalone eval runs that include cold model load should record cold-load latency separately in notes; do not treat cold-load time as normal dictation latency.
+- Intel Macs may pass safety by falling back to raw ASR when cleanup exceeds the 1200ms Punctuation-only timeout.

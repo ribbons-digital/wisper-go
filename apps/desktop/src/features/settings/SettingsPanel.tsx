@@ -85,6 +85,12 @@ export function SettingsPanel({
     });
   };
 
+  useEffect(() => {
+    if (assetStatus?.state === "missing" && !downloadingAssets) {
+      handleDownloadAssets();
+    }
+  }, [assetStatus, downloadingAssets]);
+
   return (
     <section className="settings-panel" aria-label="Settings">
       <div className="shortcut-row">
@@ -92,6 +98,21 @@ export function SettingsPanel({
         <strong>Hold Command + Shift + Space</strong>
       </div>
       <div className="model-settings">
+        <label>
+          ASR model
+          <select
+            value={draftModelSettings.asrModelId}
+            onChange={(event) =>
+              setDraftModelSettings((current) => ({
+                ...current,
+                asrModelId: event.target.value as LocalModelSettings["asrModelId"],
+              }))
+            }
+          >
+            <option value="medium">Medium (default)</option>
+            <option value="large-v3-turbo">Accuracy Pack (large-v3-turbo)</option>
+          </select>
+        </label>
         <label>
           Recognition language
           <select
@@ -227,6 +248,14 @@ function AssetDownloadNotice({
   // confusing empty affordance.
   if (!status || status.state === "ready") {
     return null;
+  }
+
+  if (status.state === "missing") {
+    return (
+      <div className="asset-download" aria-live="polite">
+        Model download needed: {status.displayName}. Starting download…
+      </div>
+    );
   }
 
   if (status.state === "downloading") {

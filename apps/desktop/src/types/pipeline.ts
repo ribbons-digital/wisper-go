@@ -27,10 +27,12 @@ export type MicrophoneStatus = {
 
 export type RecognitionLanguage = "auto" | "en" | "zh";
 export type CleanupMode = "off" | "punctuation_only" | "full_cleanup";
+export type AsrModelId = "medium" | "large-v3-turbo" | string;
 
 export type LocalModelSettings = {
   whisperBinaryPath: string;
   whisperModelPath: string;
+  asrModelId: AsrModelId;
   recognitionLanguage: RecognitionLanguage;
   cleanupMode: CleanupMode;
 };
@@ -44,6 +46,7 @@ export type CleanupRuntimeStatus = {
 
 export type AssetDownloadStatus =
   | { state: "ready" }
+  | { state: "missing"; assetId: string; displayName: string }
   | { state: "downloading"; assetId: string; displayName: string }
   | { state: "failed"; message: string };
 

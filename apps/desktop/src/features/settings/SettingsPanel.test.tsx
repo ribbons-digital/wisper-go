@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "./SettingsPanel";
@@ -25,6 +25,7 @@ function renderSettingsPanel(overrides: Partial<SettingsPanelProps> = {}) {
     modelSettings: {
       whisperBinaryPath: "",
       whisperModelPath: "",
+      asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
     },
@@ -60,6 +61,7 @@ describe("SettingsPanel", () => {
       modelSettings: {
         whisperBinaryPath: "/usr/local/bin/whisper-cli",
         whisperModelPath: "/models/base.bin",
+        asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "punctuation_only",
       },
@@ -71,7 +73,34 @@ describe("SettingsPanel", () => {
     expect(onModelSettingsSave).toHaveBeenCalledWith({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      asrModelId: "medium",
       recognitionLanguage: "zh",
+      cleanupMode: "punctuation_only",
+    });
+  });
+
+  it("saves ASR model tier with local model settings", async () => {
+    const user = userEvent.setup();
+    const onModelSettingsSave = vi.fn();
+    renderSettingsPanel({
+      onModelSettingsSave,
+      modelSettings: {
+        whisperBinaryPath: "/usr/local/bin/whisper-cli",
+        whisperModelPath: "/models/base.bin",
+        asrModelId: "medium",
+        recognitionLanguage: "auto",
+        cleanupMode: "punctuation_only",
+      },
+    });
+
+    await user.selectOptions(screen.getByLabelText("ASR model"), "large-v3-turbo");
+    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+
+    expect(onModelSettingsSave).toHaveBeenCalledWith({
+      whisperBinaryPath: "/usr/local/bin/whisper-cli",
+      whisperModelPath: "/models/base.bin",
+      asrModelId: "large-v3-turbo",
+      recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
     });
   });
@@ -84,6 +113,7 @@ describe("SettingsPanel", () => {
       modelSettings: {
         whisperBinaryPath: "/usr/local/bin/whisper-cli",
         whisperModelPath: "/models/base.bin",
+        asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "punctuation_only",
       },
@@ -95,6 +125,7 @@ describe("SettingsPanel", () => {
     expect(onModelSettingsSave).toHaveBeenCalledWith({
       whisperBinaryPath: "/usr/local/bin/whisper-cli",
       whisperModelPath: "/models/base.bin",
+      asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "full_cleanup",
     });
@@ -122,6 +153,7 @@ describe("SettingsPanel", () => {
       modelSettings: {
         whisperBinaryPath: "",
         whisperModelPath: "",
+        asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "off",
       },
@@ -239,6 +271,20 @@ describe("SettingsPanel asset download", () => {
     renderSettingsPanel();
     expect(screen.queryByText(/Downloading models/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Retry download/i })).not.toBeInTheDocument();
+  });
+
+  it("starts default asset download when readiness reports missing", async () => {
+    const { assetReadiness, ensureModelAssets } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({
+      state: "missing",
+      assetId: "medium",
+      displayName: "Whisper medium",
+    });
+    vi.mocked(ensureModelAssets).mockResolvedValueOnce({ state: "ready" });
+
+    renderSettingsPanel();
+
+    await waitFor(() => expect(ensureModelAssets).toHaveBeenCalled());
   });
 
   it("shows retry control when a download failed", async () => {

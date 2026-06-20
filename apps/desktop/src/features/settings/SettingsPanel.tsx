@@ -145,6 +145,7 @@ export function SettingsPanel({
             <option value="full_cleanup">Full cleanup and commands</option>
           </select>
         </label>
+        <p>Full cleanup downloads the optional 3B Full-cleanup Pack before activation.</p>
         <button type="button" onClick={() => onModelSettingsSave(draftModelSettings)}>
           Save model settings
         </button>

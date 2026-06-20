@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-19 (updated after Phase 5.1 local verification)
-**Next session focus:** Commit/push/open PR for completed **Phase 5.1 ASR model tiering** on branch `phase-5-1-asr-model-tiering`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5.2 cleanup punctuation eval/default. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated after Phase 5.2 local implementation and verification)
+**Next session focus:** Commit/push/open PR for completed **Phase 5.2 cleanup punctuation safety redesign** on branch `phase-5-2-cleanup-punctuation-default`, then wait for user merge. After merge, sync main/clean branch and scope Phase 5.3 Full-cleanup Pack. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -14,12 +14,13 @@
 - **Phase 4.1 is complete and merged** (PR #11): desktop `InferenceManager` lifecycle core exists with dedicated worker threads, fake-engine tests, lazy-load, idle unload, generation guard, and panic/failure reload-on-next-request behavior.
 - **Phase 4.2 is complete and merged** (PR #12): recording/settings now use `InferenceManager`, the temporary `CleanupRuntimeManager` bridge is removed, `cleanup_runtime_status` remains frontend-compatible, and tests cover the manager wiring behavior.
 - **Desktop clippy cleanup is complete and merged** (PR #13): `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes by moving `recording.rs` tests to the end of the file and replacing manual Objective-C nul strings with C string literals in `lib.rs`.
-- **Phase 5.1 is implemented locally** on branch `phase-5-1-asr-model-tiering`: ASR manifest entries are populated, `asrModelId` setting/UI exists, selected ASR Assets resolve from app-support storage, and settings activation downloads/verifies the selected ASR Asset first.
-- **Local `main` was in sync** with `origin/main` after PR #13; current work is on feature branch `phase-5-1-asr-model-tiering`.
+- **Phase 5.1 is complete and merged** (PR #14): ASR manifest entries are populated, `asrModelId` setting/UI exists, selected ASR Assets resolve from app-support storage, and settings activation downloads/verifies the selected ASR Asset first.
+- **Phase 5.2 is implemented locally** on branch `phase-5-2-cleanup-punctuation-default`: raw-model eval failed for Qwen2.5 0.5B, 1.5B, and 3B, so Punctuation-only now treats LLM output as an untrusted suggestion. A deterministic safety gate accepts only punctuation/capitalization-only changes and falls back to raw ASR for unsafe suggestions. The safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset is in the manifest, and `docs/manual/offline-cleanup-eval.md` records model suggestion, safety decision, final inserted output, safety/quality notes, and latency.
+- **Verification for Phase 5.2 local branch passed**: `cargo build --workspace`, `cargo test --workspace`, `cargo clippy -p wispergo-core --all-targets -- -D warnings`, `cargo clippy -p wispergo-core --all-targets --features llama-cpp -- -D warnings`, `cargo clippy -p wispergo-desktop --all-targets -- -D warnings`, and `pnpm test:ts`.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0, 1, and 2 are merged. Phase 3 is next.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-4 are merged. Phase 5.1 is merged, Phase 5.2 is complete locally and ready for PR, and Phase 5.3 is next after merge.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -29,7 +30,9 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Phase 3.3 design:** `docs/superpowers/specs/2026-06-19-cleanup-sidecar-retirement-3-3-design.md` — approved and implemented in PR #10.
 - **Phase 4 design:** `docs/superpowers/specs/2026-06-19-inference-manager-lifecycle-phase-4-design.md` — approved by user; Phase 4.1 implemented in PR #11.
 - **Phase 4.2 design:** `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md` — approved by user; Phase 4.2 implemented in PR #12.
-- **Phase 5 design:** `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md` — approved by user; Phase 5.1 implemented locally.
+- **Phase 5 design:** `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md` — approved by user; Phase 5.1 merged in PR #14.
+- **Phase 5.2 redesign:** `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md` — approved by user and implemented locally. Punctuation-only LLM output is untrusted and safety-gated before insertion.
+- **Phase 5.2 implementation plan:** `docs/superpowers/plans/2026-06-20-punctuation-safety-redesign-implementation.md` — tasks 1-6 implemented locally; Task 7 is PR creation/wait-for-merge.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -45,7 +48,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
 | 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
 | 4 InferenceManager lifecycle | ✅ | PRs #11, #12 |
-| 5 Model tiering + readiness gate | 🟡 5.1 locally complete | — |
+| 5 Model tiering + readiness gate | 🟡 5.2 locally complete, PR needed | PR #14 for 5.1 |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
 | 7 Streaming (follow-on) | ⬜ | — |
 
@@ -58,7 +61,7 @@ From `AGENTS.md` and the user's documented workflow:
 3. **Bridge state discipline:** every merge keeps main shippable. Additive/switch slices land before removal slices. "Remove old" only after "new is default and verified."
 4. **`gh` CLI is used for push + PR + merge** (SSH key isn't loaded; remote is HTTPS with gh's token — already configured via `gh auth setup-git`). Active account: `ribbons-digital`.
 5. **Package installs:** `sfw pnpm install <pkg>` (JS only). Rust deps go in `Cargo.toml` directly. System build deps via `brew` (cmake already installed).
-6. **Shippability gate before every PR:** `cargo build --workspace` (0 warnings) + `cargo test --workspace` + `cargo clippy -p wispergo-core --all-targets -- -D warnings` + `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` + `pnpm test:ts` (64 TS tests). Run all five; report results.
+6. **Shippability gate before every PR:** `cargo build --workspace` (0 warnings) + `cargo test --workspace` + `cargo clippy -p wispergo-core --all-targets -- -D warnings` + `cargo clippy -p wispergo-core --all-targets --features llama-cpp -- -D warnings` + `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` + `pnpm test:ts`. Run all six; report results.
 7. **Revert the stray `package.json` `packageManager` field** that `pnpm test:ts` auto-adds — it's out of scope for every slice. `git checkout -- package.json` before committing.
 8. **Sole maintainer/user = the user (shiang).** This justifies aggressive simplifications: no need to keep dark fallbacks, feature can flip on by default, no multi-user concerns. The user explicitly chose "1a + 2a" (delete sidecar outright, feature on by default) over the conservative "keep dark fallback" options.
 
@@ -94,11 +97,19 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #13. Moved the `recording.rs` test module below runtime items to satisfy `items-after-test-module`; replaced manual Objective-C nul-terminated byte strings in `lib.rs` with Rust C string literals. `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes.
 
-## Current slice: Phase 5.1 — ASR model tiering
+## Recently completed slice: Phase 5.1 — ASR model tiering
 
 **Design status:** Phase 5 design approved in `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`.
 
-**Implementation status:** Implemented locally on branch `phase-5-1-asr-model-tiering`. Populated `models.manifest.json` with verified ASR entries for `medium` (`ggml-medium-q5_0.bin`) and `large-v3-turbo`; added `asrModelId` to Rust/TS settings schema and settings UI; changed ASR live resolution to use verified app-support Assets when the manifest is populated; added download-before-activation for selected ASR model settings; asset readiness now distinguishes `missing` from active `downloading`; successful default/repair downloads resync `InferenceManager`.
+**Implementation status:** Merged in PR #14. Populated `models.manifest.json` with verified ASR entries for `medium` (`ggml-medium-q5_0.bin`) and `large-v3-turbo`; added `asrModelId` to Rust/TS settings schema and settings UI; changed ASR live resolution to use verified app-support Assets when the manifest is populated; added download-before-activation for selected ASR model settings; asset readiness now distinguishes `missing` from active `downloading`; successful default/repair downloads resync `InferenceManager`.
+
+## Current slice: Phase 5.2 — cleanup punctuation safety redesign
+
+**Design status:** Approved in `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md` after raw-model eval showed Qwen2.5 0.5B, 1.5B, and 3B can translate, omit punctuation, or rewrite mixed-language content such as `小王` → `王`.
+
+**Implementation status:** Implemented locally on branch `phase-5-2-cleanup-punctuation-default`. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
+
+**Next step:** Push/open PR for Phase 5.2, wait for user merge, then sync `main` and clean the branch. After merge, the next scope is Phase 5.3 Full-cleanup Pack.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -112,8 +123,8 @@ From `AGENTS.md` and the user's documented workflow:
 
 ## Deferred items (explicitly punted, documented in roadmap)
 
-- **Dictation-readiness gate → Phase 5.** The "block dictation until ASR asset downloaded" state can't wire until the manifest has real assets (Phase 5). The bundled model is still the in-process provider's model source today. Gating now would break all dictation.
-- **Real manifest entries → Phase 5.** `apps/desktop/src-tauri/resources/models.manifest.json` is an empty placeholder. Real model URLs/sizes/SHA-256s land in Phase 5 (model tiering), gated on the `offline-cleanup-eval.md` fixture for the 0.5B-vs-1.5B cleanup decision.
+- **Full-cleanup Pack → Phase 5.3.** Punctuation-only now has a safety-wrapped default cleanup Asset, but Full cleanup still needs its own `cleanup_full` Asset, download-before-activate behavior, and unavailable-until-verified state.
+- **Cleanup model selector remains deferred.** Phase 5.2 keeps cleanup model choice implicit from Cleanup Mode and manifest role defaults; no visible cleanup model picker exists yet.
 - **`LocalModelSettings.whisper_binary_path`** is now unused (sidecar gone) but kept to avoid a settings-schema migration; cleanup in Phase 6.
 - **Lower-level persistent llama model optimization.** Phase 4.2 intentionally wires `InferenceManager` through existing `WhisperRsProvider` and `LlamaCppCleanupProvider`; a lower-level persistent `LlamaBackend` + `LlamaModel` cleanup engine remains a focused performance follow-up if needed.
 - **Streaming partial transcripts → Phase 7** (follow-on, separate spec).
@@ -143,4 +154,4 @@ gh pr list --state merged --limit 10                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): 226 Rust tests + 64 TS tests pass, 0 build warnings, clippy clean on core. cmake + clang installed and required (the `whisper-rs` feature is on by default since 2.3).
+Baseline state (as of this handoff): full Phase 5.2 verification gate passes locally (`cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`). cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

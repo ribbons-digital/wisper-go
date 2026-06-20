@@ -253,17 +253,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     default downloads resync `InferenceManager` on success.
   - Design approved: `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`.
 
-- **5.2 Cleanup punctuation safety redesign** 🟡 design gate
-  - Original raw-model eval gate failed for Qwen2.5 0.5B, 1.5B, and 3B: models
-    translated Chinese, omitted Chinese punctuation, or changed mixed-language
-    content such as `小王` → `王`.
-  - Revised design: Punctuation-only treats LLM output as an untrusted
-    suggestion. A deterministic safety gate accepts only punctuation/
-    capitalization-only changes; unsafe suggestions fall back to raw ASR.
-  - Design draft: `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md`.
-  - Updated DoD: final inserted output in `docs/manual/offline-cleanup-eval.md`
-    must pass safety for every fixture case. Safe raw-ASR fallback counts as a
-    safety pass; punctuation quality is recorded separately.
+- **5.2 Cleanup punctuation safety redesign** ✅ locally complete (PR needed)
+  - Raw-model eval failed for Qwen2.5 0.5B, 1.5B, and 3B: models translated
+    Chinese, omitted Chinese punctuation, or changed mixed-language content such
+    as `小王` → `王`.
+  - Done locally: Punctuation-only treats LLM output as an untrusted suggestion;
+    a deterministic safety gate accepts only punctuation/capitalization-only
+    changes and falls back to raw ASR for unsafe suggestions.
+  - Added the safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset.
+  - Manual eval now records model suggestion, safety decision, final inserted
+    output, safety notes, quality notes, and latency.
+  - Design approved: `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md`.
 
 - **5.3 Full-cleanup Pack (3B) opt-in** ⬜
   - Manifest entry; selecting Cleanup Mode = Full cleanup triggers 3B download

@@ -3,8 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "desktop:dev": "pnpm --dir apps/desktop tauri dev",
-    "desktop:build": "./scripts/ensure-local-codesign-cert.sh && pnpm --dir apps/desktop tauri build && ./scripts/sign-macos-app.sh",
+    "desktop:dev": "./scripts/desktop-dev.sh",
+    "desktop:build": "./scripts/desktop-build.sh",
     "desktop:trust-cert": "./scripts/ensure-local-codesign-cert.sh && ./scripts/trust-local-codesign-cert.sh",
     "verify:inference-assets": "./scripts/verify-inference-assets.sh",
     "check:bundle-inference-layout": "./scripts/check-macos-bundle-inference-layout.sh",

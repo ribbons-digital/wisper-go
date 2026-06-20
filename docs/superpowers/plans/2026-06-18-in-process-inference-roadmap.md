@@ -240,7 +240,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     language re-arm.
   - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md`.
 
-## Phase 5 — Model Tiering 🟡
+## Phase 5 — Model Tiering ✅
 
 - **5.1 ASR: `medium` default + Accuracy Pack toggle** ✅
   - Manifest entries for `medium` and `large-v3-turbo`; setting selects active
@@ -263,10 +263,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     safety notes, quality notes, and latency.
   - Design approved: `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md`.
 
-- **5.3 Full-cleanup Pack (3B) opt-in** 🟡 PR #16 open; merge pending
-  - In PR #16 on branch `phase-5-3-full-cleanup-pack`: added the
-    Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, so
-    it is not part of first-run/default downloads.
+- **5.3 Full-cleanup Pack (3B) opt-in** ✅
+  - Done in PR #16: added the Qwen2.5-3B-Instruct `cleanup_full` manifest Asset
+    with `default: false`, so it is not part of first-run/default downloads.
   - Selecting Cleanup Mode = Full cleanup downloads/verifies the Full-cleanup
     Pack before activation; if download/verification fails, previous settings
     remain active.
@@ -274,8 +273,20 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - `WISPERGO_CLEANUP_BACKEND=ollama` remains a dev override and does not require
     local `cleanup_full` Assets.
   - Full verification gate passed before PR #16.
-  - Next: wait for user merge; after merge, sync `main`, clean the branch, and
-    start Phase 6.
+
+## Build-fix slice — macOS deployment target 🟡
+
+- **Plain desktop build after in-process GGML dependencies** 🟡
+  - Issue: `pnpm desktop:build` defaulted native GGML builds to macOS 10.13,
+    while current `llama.cpp` / `whisper.cpp` use C++ `std::filesystem` APIs
+    requiring macOS 10.15+.
+  - Fix in progress on branch `fix-macos-deployment-target-build`: set Tauri
+    `bundle.macOS.minimumSystemVersion` to `10.15` and route root
+    `desktop:build` / `desktop:dev` through wrappers that export aligned Cargo
+    and CMake deployment-target variables.
+  - Verified so far: cold native build dirs + plain `pnpm desktop:build` passes
+    without manual env prefixes; desktop clippy passes.
+  - Next: open focused PR, wait for merge, sync `main`, then start Phase 6.
 
 ## Phase 6 — Retire Bundled Path ⬜
 

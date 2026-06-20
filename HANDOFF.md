@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated after opening Phase 5.3 PR #16)
-**Next session focus:** Wait for user merge of **Phase 5.3 Full-cleanup Pack** PR #16. After merge, sync `main`, clean the branch, and start Phase 6. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated after Phase 5.3 merge and macOS build-fix slice)
+**Next session focus:** Finish the macOS desktop build-fix PR, wait for user merge, then sync `main` and start Phase 6. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -16,11 +16,11 @@
 - **Desktop clippy cleanup is complete and merged** (PR #13): `cargo clippy -p wispergo-desktop --all-targets -- -D warnings` now passes by moving `recording.rs` tests to the end of the file and replacing manual Objective-C nul strings with C string literals in `lib.rs`.
 - **Phase 5.1 is complete and merged** (PR #14): ASR manifest entries are populated, `asrModelId` setting/UI exists, selected ASR Assets resolve from app-support storage, and settings activation downloads/verifies the selected ASR Asset first.
 - **Phase 5.2 is complete and merged** (PR #15): raw-model eval failed for Qwen2.5 0.5B, 1.5B, and 3B, so Punctuation-only now treats LLM output as an untrusted suggestion. A deterministic safety gate accepts only punctuation/capitalization-only changes and falls back to raw ASR for unsafe suggestions. The safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset is in the manifest, and `docs/manual/offline-cleanup-eval.md` records model suggestion, safety decision, final inserted output, safety/quality notes, and latency.
-- **Phase 5.3 PR #16 is open** from branch `phase-5-3-full-cleanup-pack`; user merge is pending. The branch adds the Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, resolves Full cleanup from the verified app-support 3B Asset, downloads/verifies the Full-cleanup Pack before activation, leaves previous settings active on failure, keeps Punctuation-only unaffected by missing 3B, and preserves the `WISPERGO_CLEANUP_BACKEND=ollama` dev override without requiring local `cleanup_full` Assets. The full verification gate passed before opening PR #16.
+- **Phase 5.3 is complete and merged** (PR #16): adds the Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, resolves Full cleanup from the verified app-support 3B Asset, downloads/verifies the Full-cleanup Pack before activation, leaves previous settings active on failure, keeps Punctuation-only unaffected by missing 3B, and preserves the `WISPERGO_CLEANUP_BACKEND=ollama` dev override without requiring local `cleanup_full` Assets.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-4 and Phase 5.1/5.2 are merged. Phase 5.3 is in PR #16 with user merge pending; Phase 6 starts after PR #16 is merged and local branch cleanup is complete.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-5.3 are merged. A focused macOS build-fix slice is in progress so `pnpm desktop:build` works without manual deployment-target environment variables; Phase 6 starts after that PR is merged and local branch cleanup is complete.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -33,7 +33,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **Phase 5 design:** `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md` — approved by user; Phase 5.1 merged in PR #14.
 - **Phase 5.2 redesign:** `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md` — approved by user and merged in PR #15. Punctuation-only LLM output is untrusted and safety-gated before insertion.
 - **Phase 5.2 implementation plan:** `docs/superpowers/plans/2026-06-20-punctuation-safety-redesign-implementation.md` — implemented and merged in PR #15.
-- **Phase 5.3 implementation plan:** `docs/superpowers/plans/2026-06-20-full-cleanup-pack-implementation.md` — tasks 1-5 are implemented; PR #16 is open and awaiting user merge.
+- **Phase 5.3 implementation plan:** `docs/superpowers/plans/2026-06-20-full-cleanup-pack-implementation.md` — implemented and merged in PR #16.
 - **Design spec:** `docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md` — includes the reversal table vs. the superseded 2026-05-01 spec.
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
@@ -49,7 +49,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 2 In-Process ASR (build + provider + switchover) | ✅ | PRs #5, #6, #7 |
 | 3 In-Process Cleanup | ✅ | PRs #8, #9, #10 |
 | 4 InferenceManager lifecycle | ✅ | PRs #11, #12 |
-| 5 Model tiering + readiness gate | 🟡 5.3 PR #16 open; merge pending | PR #14 for 5.1, PR #15 for 5.2 |
+| 5 Model tiering + readiness gate | ✅ | PRs #14, #15, #16 |
 | 6 Retire bundled path + Intel + README | ⬜ | — |
 | 7 Streaming (follow-on) | ⬜ | — |
 
@@ -110,13 +110,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: Phase 5.3 — Full-cleanup Pack
+## Current slice: macOS desktop build fix
 
-**Design/plan status:** Phase 5 design is approved in `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`; implementation plan is `docs/superpowers/plans/2026-06-20-full-cleanup-pack-implementation.md`.
+**Issue:** After PR #16, plain `pnpm desktop:build` failed from cold native build dirs because Tauri/Cargo defaulted native GGML dependencies to macOS 10.13 while current `llama.cpp` / `whisper.cpp` use C++ `std::filesystem`, which requires macOS 10.15+.
 
-**Implementation status:** PR #16 is open from branch `phase-5-3-full-cleanup-pack`; user merge is pending. The branch adds the verified Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, so it is not part of first-run/default downloads. Selecting Cleanup Mode = Full cleanup downloads/verifies the Full-cleanup Pack before activation; if download or verification fails, previous settings remain active. Punctuation-only remains unaffected by a missing Full-cleanup Pack. `WISPERGO_CLEANUP_BACKEND=ollama` remains a dev override and does not require local `cleanup_full` Assets. The full verification gate passed before opening PR #16.
+**Implementation status:** In progress on branch `fix-macos-deployment-target-build`. The fix sets Tauri `bundle.macOS.minimumSystemVersion` to `10.15` and routes root `desktop:build` / `desktop:dev` through wrapper scripts that export the same deployment target for native sub-builds. Plain `pnpm desktop:build` has passed from cold native build dirs without manual env prefixes; desktop clippy has passed.
 
-**Next step:** Wait for user merge of PR #16. After merge, sync `main`, clean the branch, and start Phase 6.
+**Next step:** Commit, push, and open a focused PR for the build fix; wait for user merge before starting Phase 6.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -160,4 +160,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 5.3 is merged via PR #16. The macOS build-fix slice has passed `pnpm desktop:build` from cold native build dirs and `cargo clippy -p wispergo-desktop --all-targets -- -D warnings`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

@@ -326,8 +326,48 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     compact floating badge remains `ZH`; tests updated; manual switch smoke
     confirms the control feels immediate.
 
-## Phase 7 — Streaming (follow-on, separate spec) ⬜
+## Release readiness and UI polish 🟡
+
+- **R0 Product context + release-readiness spec** 🟡
+  - Spec: `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
+  - DoD: `PRODUCT.md` exists; release-readiness spec covers first-run setup,
+    model downloads, icons, recording waveform, GitHub Actions, signing,
+    notarization, docs, and implementation slices.
+
+- **R1 First-run setup and model readiness UX** ⬜
+  - Auto-show setup when permissions or required default Assets are missing.
+  - Make model download status, retry, and dictation readiness obvious to
+    non-developer users.
+  - DoD: clean-app-support smoke reaches a working default setup without manual
+    model placement; tests cover setup/readiness states.
+
+- **R2 Icon refresh** ⬜
+  - Replace app/Dock icon and add a separate menu bar/tray icon optimized for
+    small light/dark system chrome.
+  - DoD: `pnpm desktop:build` includes release-quality assets; manual smoke
+    verifies Dock and menu bar contrast.
+
+- **R3 Recording waveform UI** ⬜
+  - Replace the text-heavy recording pill with a compact waveform while holding
+    the shortcut; keep processing and idle states distinct; respect reduced
+    motion.
+  - DoD: frontend tests cover state rendering; manual hold-to-dictate smoke
+    verifies recording and processing visuals.
+
+- **R4 CI and release workflow** ⬜
+  - Add PR CI and tag-based release workflow for signed/notarized macOS release
+    artifacts.
+  - DoD: PR gates run in GitHub Actions; release docs describe required Apple
+    Developer credentials and release steps.
+
+- **R5 Public README and contributor docs** ⬜
+  - Split end-user install/setup docs from developer/contributor workflow.
+  - DoD: README and release docs are usable by non-developer downloaders and
+    source contributors.
+
+## Phase 7 — Streaming (optional follow-on) ⬜
 
 - **7.x Live partial transcripts on the persistent Whisper context** ⬜
-  - Out of scope for this roadmap. Spawn a new spec when Phase 6 is merged.
-  - Not started until engine migration is verified stable in real use.
+  - Deferred. The re-architecture is complete without this phase.
+  - Only start if real-use validation shows live partial transcripts would have
+    clear user value.

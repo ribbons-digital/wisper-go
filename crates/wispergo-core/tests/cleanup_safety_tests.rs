@@ -17,6 +17,14 @@ fn accepts_chinese_punctuation_only() {
 }
 
 #[test]
+fn accepts_chinese_internal_punctuation_only() {
+    assert!(is_safe_punctuation_cleanup(
+        "今天我们完成了离线语音识别和标点清理测试",
+        "今天，我们完成了离线语音识别和标点清理测试。",
+    ));
+}
+
+#[test]
 fn accepts_mixed_language_when_content_is_preserved() {
     assert!(is_safe_punctuation_cleanup(
         "please remind 小王 to review the offline build tonight",
@@ -92,4 +100,14 @@ fn rejects_dropped_currency_symbol() {
 #[test]
 fn rejects_dropped_math_symbol() {
     assert!(!is_safe_punctuation_cleanup("a+b equals c", "ab equals c",));
+}
+
+#[test]
+fn rejects_dropped_less_than_symbol() {
+    assert!(!is_safe_punctuation_cleanup("a < b", "a b"));
+}
+
+#[test]
+fn rejects_dropped_greater_than_symbol() {
+    assert!(!is_safe_punctuation_cleanup("a > b", "a b"));
 }

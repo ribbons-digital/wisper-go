@@ -25,7 +25,7 @@ fn normalized_content_tokens(text: &str) -> Vec<String> {
             continue;
         }
 
-        if is_preserved_standalone_symbol(ch) {
+        if is_preserved_standalone_symbol(ch) || is_cjk_ideograph(ch) {
             flush_current(&mut tokens, &mut current);
             tokens.push(ch.to_string());
             continue;
@@ -47,7 +47,22 @@ fn flush_current(tokens: &mut Vec<String>, current: &mut String) {
 fn is_preserved_standalone_symbol(ch: char) -> bool {
     matches!(
         ch,
-        '$' | '+' | '=' | '@' | '#' | '%' | '&' | '*' | '￥' | '€' | '£' | '¥'
+        '$' | '+' | '=' | '<' | '>' | '@' | '#' | '%' | '&' | '*' | '￥' | '€' | '£' | '¥'
+    )
+}
+
+fn is_cjk_ideograph(ch: char) -> bool {
+    matches!(
+        ch,
+        '\u{3400}'..='\u{4DBF}'
+            | '\u{4E00}'..='\u{9FFF}'
+            | '\u{F900}'..='\u{FAFF}'
+            | '\u{20000}'..='\u{2A6DF}'
+            | '\u{2A700}'..='\u{2B73F}'
+            | '\u{2B740}'..='\u{2B81F}'
+            | '\u{2B820}'..='\u{2CEAF}'
+            | '\u{2CEB0}'..='\u{2EBEF}'
+            | '\u{30000}'..='\u{3134F}'
     )
 }
 
@@ -73,8 +88,6 @@ fn is_ignored_punctuation(ch: char) -> bool {
             | ']'
             | '{'
             | '}'
-            | '<'
-            | '>'
             | '。'
             | '？'
             | '！'
@@ -111,19 +124,23 @@ mod tests {
     fn normalized_content_removes_common_punctuation_but_preserves_word_boundaries() {
         assert_eq!(
             normalized_content_tokens(" Hello, 小王！ "),
-            vec!["hello".to_string(), "小王".to_string()]
+            vec!["hello".to_string(), "小".to_string(), "王".to_string()]
         );
     }
 
     #[test]
     fn normalized_content_preserves_symbols_as_tokens() {
         assert_eq!(
-            normalized_content_tokens("a+b = $5"),
+            normalized_content_tokens("a+b = c < d > $5"),
             vec![
                 "a".to_string(),
                 "+".to_string(),
                 "b".to_string(),
                 "=".to_string(),
+                "c".to_string(),
+                "<".to_string(),
+                "d".to_string(),
+                ">".to_string(),
                 "$".to_string(),
                 "5".to_string(),
             ]

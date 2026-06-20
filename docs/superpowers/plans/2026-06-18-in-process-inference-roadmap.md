@@ -240,12 +240,12 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     language re-arm.
   - Design approved: `docs/superpowers/specs/2026-06-19-inference-manager-wiring-phase-4-2-design.md`.
 
-## Phase 5 — Model Tiering ⬜
+## Phase 5 — Model Tiering 🟡
 
-- **5.1 ASR: `medium` default + Accuracy Pack toggle** ✅ locally complete (PR needed)
+- **5.1 ASR: `medium` default + Accuracy Pack toggle** ✅
   - Manifest entries for `medium` and `large-v3-turbo`; setting selects active
     ASR asset; switching to an absent asset triggers download.
-  - Done locally: populated ASR manifest entries; user-facing/default id
+  - Done in PR #14: populated ASR manifest entries; user-facing/default id
     `medium` points to quantized `ggml-medium-q5_0.bin`; added `asrModelId` to
     local model settings and UI; app-support ASR Asset paths are used when the
     manifest is populated; settings save downloads/verifies selected ASR before
@@ -253,13 +253,17 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     default downloads resync `InferenceManager` on success.
   - Design approved: `docs/superpowers/specs/2026-06-19-model-tiering-phase-5-design.md`.
 
-- **5.2 Cleanup: 0.5B default — EVAL GATE ⛔ until eval passes** ⬜
-  - Run `docs/manual/offline-cleanup-eval.md` against Qwen2.5-0.5B.
-  - **Stop-rule**: 0.5B is not accepted as the punctuation default until the
-    fixture passes (English, Chinese, mixed, already-punctuated). On failure,
-    bump to Qwen2.5-1.5B and re-run.
-  - DoD: eval table filled in for the chosen model; no regression vs. current
-    3B on the fixture cases.
+- **5.2 Cleanup punctuation safety redesign** 🟡 design gate
+  - Original raw-model eval gate failed for Qwen2.5 0.5B, 1.5B, and 3B: models
+    translated Chinese, omitted Chinese punctuation, or changed mixed-language
+    content such as `小王` → `王`.
+  - Revised design: Punctuation-only treats LLM output as an untrusted
+    suggestion. A deterministic safety gate accepts only punctuation/
+    capitalization-only changes; unsafe suggestions fall back to raw ASR.
+  - Design draft: `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md`.
+  - Updated DoD: final inserted output in `docs/manual/offline-cleanup-eval.md`
+    must pass safety for every fixture case. Safe raw-ASR fallback counts as a
+    safety pass; punctuation quality is recorded separately.
 
 - **5.3 Full-cleanup Pack (3B) opt-in** ⬜
   - Manifest entry; selecting Cleanup Mode = Full cleanup triggers 3B download

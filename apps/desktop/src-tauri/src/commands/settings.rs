@@ -218,16 +218,17 @@ fn selected_cleanup_asset(
     manifest: &AssetManifest,
     role: AssetRole,
 ) -> Result<&AssetEntry, String> {
-    manifest
-        .by_role(role)
-        .find(|asset| asset.default)
-        .ok_or_else(|| match role {
-            AssetRole::CleanupPunctuation => {
-                "no default cleanup punctuation asset is configured".to_string()
-            }
-            AssetRole::CleanupFull => "no default full cleanup asset is configured".to_string(),
-            AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
-        })
+    match role {
+        AssetRole::CleanupPunctuation => manifest
+            .by_role(role)
+            .find(|asset| asset.default)
+            .ok_or_else(|| "no default cleanup punctuation asset is configured".to_string()),
+        AssetRole::CleanupFull => manifest
+            .by_role(role)
+            .next()
+            .ok_or_else(|| "no full cleanup asset is configured".to_string()),
+        AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+    }
 }
 
 fn resolve_asr_model_path_for_settings(
@@ -735,6 +736,14 @@ mod tests {
         id: &str,
         role: AssetRole,
     ) -> wispergo_core::asset_manifest::AssetManifest {
+        test_cleanup_manifest_with_default(id, role, true)
+    }
+
+    fn test_cleanup_manifest_with_default(
+        id: &str,
+        role: AssetRole,
+        default: bool,
+    ) -> wispergo_core::asset_manifest::AssetManifest {
         wispergo_core::asset_manifest::AssetManifest {
             schema_version: 1,
             assets: vec![wispergo_core::asset_manifest::AssetEntry {
@@ -745,7 +754,7 @@ mod tests {
                 size: 10,
                 sha256: "dc41663fad7e4d1e9d5767b61ec63919d3a120dc3e12f34bb5375658bbaccfb1"
                     .to_string(),
-                default: true,
+                default,
             }],
         }
     }
@@ -940,6 +949,58 @@ mod tests {
     }
 
     #[test]
+    fn full_cleanup_uses_verified_app_support_full_asset_when_manifest_populated() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_cleanup_manifest_with_default(
+            "qwen2.5-3b-instruct",
+            AssetRole::CleanupFull,
+            false,
+        );
+        let asset_path = storage.asset_path("qwen2.5-3b-instruct", AssetRole::CleanupFull);
+        create_file(&asset_path);
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::FullCleanup,
+            ..LocalModelSettings::default()
+        };
+
+        let path = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect("full cleanup path");
+
+        assert_eq!(path, asset_path);
+    }
+
+    #[test]
+    fn full_cleanup_missing_full_asset_reports_unavailable_path_error() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_cleanup_manifest_with_default(
+            "qwen2.5-3b-instruct",
+            AssetRole::CleanupFull,
+            false,
+        );
+        let settings = LocalModelSettings {
+            cleanup_mode: CleanupMode::FullCleanup,
+            ..LocalModelSettings::default()
+        };
+
+        let error = super::resolve_cleanup_model_path_for_settings(
+            &settings,
+            None,
+            &manifest,
+            Some(&storage),
+        )
+        .expect_err("missing full cleanup asset should report unavailable");
+
+        assert!(error.contains("full cleanup asset 'qwen2.5-3b-instruct' is not downloaded yet"));
+    }
+
+    #[test]
     fn full_cleanup_does_not_use_punctuation_asset_when_manifest_populated() {
         let tempdir = tempfile::tempdir().expect("tempdir");
         let storage = AssetStorage::new(tempdir.path().join("models"));
@@ -958,9 +1019,9 @@ mod tests {
             &manifest,
             Some(&storage),
         )
-        .expect_err("full cleanup should require a cleanup_full default");
+        .expect_err("full cleanup should require a cleanup_full asset");
 
-        assert!(error.contains("no default full cleanup asset is configured"));
+        assert!(error.contains("no full cleanup asset is configured"));
     }
 
     #[test]

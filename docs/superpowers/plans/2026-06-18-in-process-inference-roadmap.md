@@ -10,7 +10,7 @@ previous one is merged unless explicitly parallelizable.
 
 Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
 
-## Phase 0 — Foundations 🟡
+## Phase 0 — Foundations ✅
 
 - **0.1 Asset manifest format + parser** ✅
   - Define `models.manifest.json` schema (id, role, displayName, url, size,
@@ -166,7 +166,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - `LocalModelSettings.whisper_binary_path` field left in place (unused by
     ASR now); full settings-shape cleanup is Phase 6.
 
-## Phase 3 — In-Process Cleanup 🟡
+## Phase 3 — In-Process Cleanup ✅
 
 - **3.1 Integrate `llama-cpp-2`, pinned version, Metal build** ✅
   - Add dependency, pin, clean arm64 release build.

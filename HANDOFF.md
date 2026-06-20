@@ -131,7 +131,7 @@ From `AGENTS.md` and the user's documented workflow:
 
 ## One thing the automated gate can't cover
 
-PR #7 changed the **live runtime ASR path**. CI/tests pass but no model binary runs in CI. A manual smoke test (`pnpm desktop:dev` + hold-to-dictate, with `ggml-large-v3-turbo.bin` staged under `apps/desktop/src-tauri/resources/models/asr/`) is the only real proof that in-process ASR works end-to-end. **Recommend the user do this before starting Phase 3** — if it's broken, fixing it is higher priority than 3.1.
+PR #7 changed the **live runtime ASR path**. CI/tests pass but no model binary runs in CI. A manual smoke test (`pnpm desktop:dev` + hold-to-dictate, with a verified ASR Asset available) remains the only real proof that in-process ASR works end-to-end if runtime ASR behavior is in question.
 
 ## Suggested skills (invoke these)
 
@@ -150,7 +150,7 @@ cat docs/superpowers/plans/2026-06-18-in-process-inference-roadmap.md           
 cat docs/superpowers/specs/2026-06-18-in-process-inference-and-asset-downloader-design.md
 cat CONTEXT.md                                                                     # glossary
 cat docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md              # the reversal
-gh pr list --state merged --limit 10                                               # what's landed (8 PRs so far)
+gh pr list --state merged --limit 20                                               # what's landed recently
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 

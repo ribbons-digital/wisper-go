@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during compact ZH label follow-up)
-**Next session focus:** Finish the compact ZH label PR, wait for user merge, then sync `main` before considering Phase 7. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during release-readiness planning)
+**Next session focus:** Review/approve the release-readiness and UI polish spec, then start R1 first-run setup and model readiness UX before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -20,10 +20,11 @@
 - **macOS deployment-target build fix is complete and merged** (PR #17): plain `pnpm desktop:build` no longer requires manual deployment-target env prefixes.
 - **Phase 6 is complete and merged** (PR #18): retired bundled sidecar/model paths, kept only the Asset Manifest in the app bundle, removed `InferenceResourcePaths` / `CpuArchitecture` and legacy settings path fields, added a thin-bundle check, and refreshed README/docs for thin-app + first-run downloads.
 - **Language UX follow-up is complete and merged** (PR #19): language-only switching re-arms ASR without re-hashing the selected Asset, while normal settings/model activation still verifies integrity; Chinese mode is documented as Chinese / Mixed for mixed Chinese-English dictation.
+- **Compact ZH label follow-up is complete and merged** (PR #20): the floating badge is back to `ZH` while expanded UI/help copy remains Chinese / Mixed.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, and the language UX follow-up are merged. A compact-label follow-up is in progress to keep the floating Chinese badge as `ZH` while retaining Chinese / Mixed wording in expanded UI/help copy.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, the language UX follow-up, and the compact ZH label follow-up are merged. The next track is release readiness and UI polish for public GitHub Releases.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -41,6 +42,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **ADR-0001 (the reversal):** `docs/adr/0001-thin-app-downloader-supersedes-bundled-inference.md`
 - **Superseded spec (do not follow, but read for context):** `docs/superpowers/specs/2026-05-01-offline-apple-inference-design.md`
 - **Glossary:** `CONTEXT.md` — canonical terms (Asset, Asset Manifest, Model Pack, Inference Manager, Inference Engine, "offline-after-setup").
+- **PRODUCT.md** — strategic product context for UI/release polish.
+- **Release-readiness spec:** `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
 - **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
@@ -55,8 +58,9 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 5 Model tiering + readiness gate | ✅ | PRs #14, #15, #16 |
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
-| Compact ZH label follow-up | 🟡 in progress | — |
-| 7 Streaming (follow-on) | ⬜ | — |
+| Compact ZH label follow-up | ✅ | PR #20 |
+| Release readiness and UI polish | 🟡 planning | — |
+| 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
 
@@ -115,13 +119,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: compact ZH label follow-up
+## Current slice: release readiness and UI polish planning
 
-**Issue:** After PR #19, the expanded Chinese / Mixed guidance is useful, but the floating language badge should remain compact and read `ZH`, not `ZH/Mix`.
+**Issue:** The inference re-architecture is complete, but the app is not yet ready for non-developer GitHub Release users. Public release needs first-run setup, model readiness UX, release packaging, signing/notarization, icon polish, recording visual polish, CI, and contributor docs.
 
-**Implementation status:** In progress on branch `ui-zh-compact-label`. The intended scope is only the compact floating badge/test plus README wording for the language-cycle label; the expanded Chinese / Mixed menu/settings/help copy remains.
+**Implementation status:** In progress on branch `release-readiness-design`. Added `PRODUCT.md` and drafted `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`. Roadmap now treats Phase 7 streaming as optional/deferred and makes release readiness the next track.
 
-**Next step:** Verify targeted frontend tests, open PR, and wait for user merge before starting Phase 7.
+**Next step:** User reviews/approves the release-readiness spec. If approved, start R1 first-run setup and model readiness UX because it is the highest-value blocker for end users installing the app.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -137,7 +141,7 @@ From `AGENTS.md` and the user's documented workflow:
 
 - **Cleanup model selector remains deferred.** Phase 5 keeps cleanup model choice implicit from Cleanup Mode and manifest role/pack selection; no visible cleanup model picker exists yet.
 - **Lower-level persistent llama model optimization.** Phase 4.2 intentionally wires `InferenceManager` through existing `WhisperRsProvider` and `LlamaCppCleanupProvider`; a lower-level persistent `LlamaBackend` + `LlamaModel` cleanup engine remains a focused performance follow-up if needed.
-- **Streaming partial transcripts → Phase 7** (follow-on, separate spec).
+- **Streaming partial transcripts → Phase 7** remains optional/deferred. Start only if real-use validation shows clear user value.
 
 ## One thing the automated gate can't cover
 
@@ -164,4 +168,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18 and the language UX follow-up is merged via PR #19. Compact ZH label follow-up is intentionally tiny and keeps expanded Chinese / Mixed guidance intact. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, and compact ZH label is merged via PR #20. Release readiness planning is in progress via PRODUCT.md and the release-readiness spec. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

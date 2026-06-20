@@ -311,9 +311,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - DoD: README matches reality; stale instructions removed; runtime ASR smoke
     result documented before PR.
 
-## Language UX follow-up 🟡
+## Language UX follow-up ✅
 
-- **Fast language switch + mixed Chinese/English labeling** 🟡
+- **Fast language switch + mixed Chinese/English labeling** ✅
   - Issue: language-only switching re-resolved the ASR Asset through the normal
     integrity path, which can hash the selected model file and make switching
     feel delayed.
@@ -322,8 +322,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     expected.
   - DoD: language-only switches re-arm ASR from the present selected Asset
     without re-hashing; normal model/settings resolution still verifies
-    integrity; UI/README present Chinese mode as Chinese / Mixed; tests updated;
-    manual switch smoke confirms the control feels immediate.
+    integrity; UI/README present Chinese mode as Chinese / Mixed while the
+    compact floating badge remains `ZH`; tests updated; manual switch smoke
+    confirms the control feels immediate.
 
 ## Phase 7 — Streaming (follow-on, separate spec) ⬜
 

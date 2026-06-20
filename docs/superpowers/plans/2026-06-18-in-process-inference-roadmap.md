@@ -274,40 +274,42 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     local `cleanup_full` Assets.
   - Full verification gate passed before PR #16.
 
-## Build-fix slice — macOS deployment target 🟡
+## Build-fix slice — macOS deployment target ✅
 
-- **Plain desktop build after in-process GGML dependencies** 🟡
-  - Issue: `pnpm desktop:build` defaulted native GGML builds to macOS 10.13,
-    while current `llama.cpp` / `whisper.cpp` use C++ `std::filesystem` APIs
-    requiring macOS 10.15+.
-  - Fix in progress on branch `fix-macos-deployment-target-build`: set Tauri
-    `bundle.macOS.minimumSystemVersion` to `10.15` and route root
-    `desktop:build` / `desktop:dev` through wrappers that export aligned Cargo
-    and CMake deployment-target variables.
-  - Verified so far: cold native build dirs + plain `pnpm desktop:build` passes
-    without manual env prefixes; desktop clippy passes.
-  - Next: open focused PR, wait for merge, sync `main`, then start Phase 6.
+- **Plain desktop build after in-process GGML dependencies** ✅
+  - Done in PR #17: set Tauri `bundle.macOS.minimumSystemVersion` to `10.15`
+    and route root `desktop:build` / `desktop:dev` through wrappers that export
+    aligned Cargo and CMake deployment-target variables.
+  - Verified before PR: cold native build dirs + plain `pnpm desktop:build`
+    passed without manual env prefixes; desktop clippy passed.
 
-## Phase 6 — Retire Bundled Path ⬜
+## Phase 6 — Retire Bundled Path 🟡
 
-- **6.1 Remove bundled-asset trees and scripts** ⬜
+- **6.1 Remove bundled-asset trees and scripts** 🟡
   - Delete `apps/desktop/src-tauri/resources/bin/`,
     `apps/desktop/src-tauri/resources/models/`,
     `scripts/verify-inference-assets.sh`,
     `scripts/check-macos-bundle-inference-layout.sh`,
     `desktop:build:offline-release` script + docs.
-  - DoD: `pnpm desktop:build` produces a thin app; README updated; no dead
-    references.
+  - Keep `apps/desktop/src-tauri/resources/models.manifest.json` and bundle only
+    that manifest at `resources/models.manifest.json`.
+  - DoD: `pnpm desktop:build` produces a thin app; bundle contains no `bin/`,
+    no `models/`, no `.bin`/`.gguf`/`.dylib`/sidecar artifacts, and remains
+    under the thin-app size budget; README updated; no dead references.
 
-- **6.2 Drop Intel targets** ⬜
-  - Remove `macos-x86_64` paths and arch-selection logic; arm64-only build.
-  - DoD: build is arm64-only; `CpuArchitecture` logic simplified or removed;
-    tests updated.
+- **6.2 Drop Intel targets and bundled fallback paths** 🟡
+  - Remove `macos-x86_64` paths, `CpuArchitecture`, and
+    `InferenceResourcePaths` bundled-path resolution.
+  - Remove legacy `LocalModelSettings` path fields (`whisperBinaryPath` /
+    `whisperModelPath`) while keeping old saved keys serde-compatible.
+  - DoD: live model resolution is manifest/app-support based, with
+    `WISPERGO_WHISPER_MODEL` retained as the ASR dev override; tests updated.
 
-- **6.3 README + docs refresh** ⬜
+- **6.3 README + docs refresh** 🟡
   - Update README to describe thin-app + first-run download; mark 2026-05-01
     spec as superseded (already done in doc header).
-  - DoD: README matches reality; stale instructions removed.
+  - DoD: README matches reality; stale instructions removed; runtime ASR smoke
+    result documented before PR.
 
 ## Phase 7 — Streaming (follow-on, separate spec) ⬜
 

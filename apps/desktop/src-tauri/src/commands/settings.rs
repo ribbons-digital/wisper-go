@@ -20,7 +20,6 @@ use crate::inference::manager::{
     AsrEngineConfig, CleanupEngineConfig, CleanupInferenceMode, InferenceManager,
     InferenceRuntimeStatus,
 };
-use crate::inference::resources::InferenceResourcePaths;
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecognitionLanguage};
 
@@ -77,38 +76,17 @@ pub fn sync_inference_manager_for_settings(
 ) {
     let manifest = load_bundled_manifest(app);
     let storage = app_support_asset_storage(app).ok();
-    let resources = match app.path().resource_dir() {
-        Ok(resource_root) => Some(InferenceResourcePaths::from_resource_root(resource_root)),
-        Err(err) => {
-            eprintln!("inference resource directory unavailable: {err}");
-            None
-        }
-    };
-
-    sync_asr_for_settings(
-        inference_manager,
-        settings,
-        resources.as_ref(),
-        &manifest,
-        storage.as_ref(),
-    );
-    sync_cleanup_for_settings(
-        inference_manager,
-        settings,
-        resources.as_ref(),
-        &manifest,
-        storage.as_ref(),
-    );
+    sync_asr_for_settings(inference_manager, settings, &manifest, storage.as_ref());
+    sync_cleanup_for_settings(inference_manager, settings, &manifest, storage.as_ref());
 }
 
 fn sync_asr_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
-    resources: Option<&InferenceResourcePaths>,
     manifest: &AssetManifest,
     storage: Option<&AssetStorage>,
 ) {
-    match resolve_asr_model_path_for_settings(settings, resources, manifest, storage) {
+    match resolve_asr_model_path_for_settings(settings, manifest, storage) {
         Ok(model_path) => {
             if let Err(err) = inference_manager.asr().arm(AsrEngineConfig {
                 model_path,
@@ -131,7 +109,6 @@ fn sync_asr_for_settings(
 fn sync_cleanup_for_settings(
     inference_manager: &InferenceManager,
     settings: &LocalModelSettings,
-    resources: Option<&InferenceResourcePaths>,
     manifest: &AssetManifest,
     storage: Option<&AssetStorage>,
 ) {
@@ -143,7 +120,7 @@ fn sync_cleanup_for_settings(
     }
 
     let cleanup_model_path =
-        match resolve_cleanup_model_path_for_settings(settings, resources, manifest, storage) {
+        match resolve_cleanup_model_path_for_settings(settings, manifest, storage) {
             Ok(path) => path,
             Err(message) => {
                 if let Err(err) = inference_manager.cleanup().mark_unavailable(message) {
@@ -167,7 +144,6 @@ fn sync_cleanup_for_settings(
 
 fn resolve_cleanup_model_path_for_settings(
     settings: &LocalModelSettings,
-    resources: Option<&InferenceResourcePaths>,
     manifest: &AssetManifest,
     storage: Option<&AssetStorage>,
 ) -> Result<PathBuf, String> {
@@ -177,41 +153,38 @@ fn resolve_cleanup_model_path_for_settings(
         CleanupMode::FullCleanup => AssetRole::CleanupFull,
     };
 
-    if !manifest.assets.is_empty() {
-        let storage = storage.ok_or_else(|| {
-            "Local cleanup asset storage is unavailable. Reopen Wispergo and try again.".to_string()
-        })?;
-        let asset = selected_cleanup_asset(manifest, role)?;
-        let path = storage.asset_path(&asset.id, asset.role);
-        return match verify_asset(asset, storage) {
-            AssetIntegrity::Valid => Ok(path),
-            AssetIntegrity::Missing => Err(match role {
-                AssetRole::CleanupPunctuation => format!(
-                    "cleanup punctuation asset '{}' is not downloaded yet",
-                    asset.id
-                ),
-                AssetRole::CleanupFull => {
-                    format!("full cleanup asset '{}' is not downloaded yet", asset.id)
-                }
-                AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
-            }),
-            AssetIntegrity::Corrupt => Err(match role {
-                AssetRole::CleanupPunctuation => {
-                    format!("cleanup punctuation asset '{}' is corrupt", asset.id)
-                }
-                AssetRole::CleanupFull => format!("full cleanup asset '{}' is corrupt", asset.id),
-                AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
-            }),
-        };
+    if manifest.assets.is_empty() {
+        return Err(
+            "Local cleanup manifest is unavailable. Reopen Wispergo or reinstall the app."
+                .to_string(),
+        );
     }
 
-    resources
-        .filter(|resources| resources.cleanup_model_path.exists())
-        .map(|resources| resources.cleanup_model_path.clone())
-        .ok_or_else(|| {
-            "Local cleanup is not configured. Download cleanup models or reinstall Wispergo."
-                .to_string()
-        })
+    let storage = storage.ok_or_else(|| {
+        "Local cleanup asset storage is unavailable. Reopen Wispergo and try again.".to_string()
+    })?;
+    let asset = selected_cleanup_asset(manifest, role)?;
+    let path = storage.asset_path(&asset.id, asset.role);
+    match verify_asset(asset, storage) {
+        AssetIntegrity::Valid => Ok(path),
+        AssetIntegrity::Missing => Err(match role {
+            AssetRole::CleanupPunctuation => format!(
+                "cleanup punctuation asset '{}' is not downloaded yet",
+                asset.id
+            ),
+            AssetRole::CleanupFull => {
+                format!("full cleanup asset '{}' is not downloaded yet", asset.id)
+            }
+            AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+        }),
+        AssetIntegrity::Corrupt => Err(match role {
+            AssetRole::CleanupPunctuation => {
+                format!("cleanup punctuation asset '{}' is corrupt", asset.id)
+            }
+            AssetRole::CleanupFull => format!("full cleanup asset '{}' is corrupt", asset.id),
+            AssetRole::Asr => unreachable!("cleanup role cannot be ASR"),
+        }),
+    }
 }
 
 fn selected_cleanup_asset(
@@ -233,7 +206,6 @@ fn selected_cleanup_asset(
 
 fn resolve_asr_model_path_for_settings(
     settings: &LocalModelSettings,
-    resources: Option<&InferenceResourcePaths>,
     manifest: &AssetManifest,
     storage: Option<&AssetStorage>,
 ) -> Result<PathBuf, String> {
@@ -241,41 +213,28 @@ fn resolve_asr_model_path_for_settings(
         return Ok(env_model);
     }
 
-    if !manifest.assets.is_empty() {
-        let storage = storage.ok_or_else(|| {
-            "Local ASR asset storage is unavailable. Reopen Wispergo and try again.".to_string()
-        })?;
-        let asset = selected_asr_asset(manifest, settings)?;
-        let path = storage.asset_path(&asset.id, asset.role);
-        return match verify_asset(asset, storage) {
-            AssetIntegrity::Valid => Ok(path),
-            AssetIntegrity::Missing => Err(format!(
-                "ASR model '{}' is not downloaded yet. Download models before dictating.",
-                asset.display_name
-            )),
-            AssetIntegrity::Corrupt => Err(format!(
-                "ASR model '{}' is corrupt. Repair or re-download models before dictating.",
-                asset.display_name
-            )),
-        };
+    if manifest.assets.is_empty() {
+        return Err(
+            "Local ASR manifest is unavailable. Reopen Wispergo, reinstall the app, or set WISPERGO_WHISPER_MODEL."
+                .to_string(),
+        );
     }
 
-    let bundled_model_path = resources
-        .filter(|resources| resources.asr_model_path.exists())
-        .map(|resources| resources.asr_model_path.clone());
-    let settings_model_path = settings
-        .whisper_model_path
-        .as_ref()
-        .map(|path| PathBuf::from(path.trim()))
-        .filter(|path| path.exists());
-    let model_path = bundled_model_path.or(settings_model_path);
-
-    match model_path {
-        Some(path) => Ok(path),
-        None => Err(
-            "Local ASR is not configured. Reinstall Wispergo or set WISPERGO_WHISPER_MODEL."
-                .to_string(),
-        ),
+    let storage = storage.ok_or_else(|| {
+        "Local ASR asset storage is unavailable. Reopen Wispergo and try again.".to_string()
+    })?;
+    let asset = selected_asr_asset(manifest, settings)?;
+    let path = storage.asset_path(&asset.id, asset.role);
+    match verify_asset(asset, storage) {
+        AssetIntegrity::Valid => Ok(path),
+        AssetIntegrity::Missing => Err(format!(
+            "ASR model '{}' is not downloaded yet. Download models before dictating.",
+            asset.display_name
+        )),
+        AssetIntegrity::Corrupt => Err(format!(
+            "ASR model '{}' is corrupt. Repair or re-download models before dictating.",
+            asset.display_name
+        )),
     }
 }
 
@@ -691,7 +650,6 @@ mod tests {
         CleanupInferenceOutput, CleanupInferenceRequest, InferenceManager, InferenceManagerError,
         InferenceRuntimeState, ManagedInferenceEngine,
     };
-    use crate::inference::resources::{CpuArchitecture, InferenceResourcePaths};
     use crate::state::RecognitionLanguage;
     use wispergo_core::asset_manifest::AssetRole;
     use wispergo_core::asset_storage::AssetStorage;
@@ -785,7 +743,8 @@ mod tests {
         }
     }
 
-    fn test_manifest_with_default_asr_and_cleanup_assets() -> wispergo_core::asset_manifest::AssetManifest {
+    fn test_manifest_with_default_asr_and_cleanup_assets(
+    ) -> wispergo_core::asset_manifest::AssetManifest {
         let sha256 = "dc41663fad7e4d1e9d5767b61ec63919d3a120dc3e12f34bb5375658bbaccfb1";
         wispergo_core::asset_manifest::AssetManifest {
             schema_version: 1,
@@ -854,12 +813,10 @@ mod tests {
     #[test]
     fn settings_sync_arms_without_loading_and_first_asr_request_loads() {
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.asr_model_path);
-        create_file(&resources.cleanup_model_path);
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_manifest_with_default_asr_and_cleanup_assets();
+        create_file(&storage.asset_path("medium", AssetRole::Asr));
+        create_file(&storage.asset_path("qwen2.5-0.5b-instruct", AssetRole::CleanupPunctuation));
         let asr_loads = Arc::new(AtomicUsize::new(0));
         let cleanup_loads = Arc::new(AtomicUsize::new(0));
         let seen_asr_configs = Arc::new(Mutex::new(Vec::new()));
@@ -870,9 +827,8 @@ mod tests {
         );
         let settings = LocalModelSettings::default();
 
-        let manifest = empty_manifest();
-        super::sync_asr_for_settings(&manager, &settings, Some(&resources), &manifest, None);
-        super::sync_cleanup_for_settings(&manager, &settings, Some(&resources), &manifest, None);
+        super::sync_asr_for_settings(&manager, &settings, &manifest, Some(&storage));
+        super::sync_cleanup_for_settings(&manager, &settings, &manifest, Some(&storage));
 
         assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
         assert_eq!(
@@ -914,7 +870,7 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        super::sync_asr_for_settings(&manager, &settings, None, &manifest, Some(&storage));
+        super::sync_asr_for_settings(&manager, &settings, &manifest, Some(&storage));
 
         assert_eq!(manager.asr().status().state, InferenceRuntimeState::Ready);
         assert!(!manager.asr().snapshot().loaded);
@@ -999,13 +955,9 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let path = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect("cleanup path");
+        let path =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect("cleanup path");
 
         assert_eq!(path, asset_path);
     }
@@ -1021,13 +973,9 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let error = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect_err("missing cleanup asset should report unavailable");
+        let error =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect_err("missing cleanup asset should report unavailable");
 
         assert!(error
             .contains("cleanup punctuation asset 'qwen2.5-0.5b-instruct' is not downloaded yet"));
@@ -1049,13 +997,9 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let error = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect_err("corrupt cleanup asset should report unavailable");
+        let error =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect_err("corrupt cleanup asset should report unavailable");
 
         assert!(error.contains("cleanup punctuation asset 'qwen2.5-0.5b-instruct' is corrupt"));
     }
@@ -1076,13 +1020,9 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let path = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect("full cleanup path");
+        let path =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect("full cleanup path");
 
         assert_eq!(path, asset_path);
     }
@@ -1101,13 +1041,9 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let error = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect_err("missing full cleanup asset should report unavailable");
+        let error =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect_err("missing full cleanup asset should report unavailable");
 
         assert!(error.contains("full cleanup asset 'qwen2.5-3b-instruct' is not downloaded yet"));
     }
@@ -1125,40 +1061,38 @@ mod tests {
             ..LocalModelSettings::default()
         };
 
-        let error = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            None,
-            &manifest,
-            Some(&storage),
-        )
-        .expect_err("full cleanup should require a cleanup_full asset");
+        let error =
+            super::resolve_cleanup_model_path_for_settings(&settings, &manifest, Some(&storage))
+                .expect_err("full cleanup should require a cleanup_full asset");
 
         assert!(error.contains("no full cleanup asset is configured"));
     }
 
     #[test]
-    fn cleanup_uses_bundled_path_only_when_manifest_is_empty() {
-        let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.cleanup_model_path);
+    fn cleanup_does_not_fall_back_to_bundled_path_when_manifest_is_empty() {
         let settings = LocalModelSettings {
             cleanup_mode: CleanupMode::PunctuationOnly,
             ..LocalModelSettings::default()
         };
         let manifest = empty_manifest();
 
-        let path = super::resolve_cleanup_model_path_for_settings(
-            &settings,
-            Some(&resources),
-            &manifest,
-            None,
-        )
-        .expect("bundled cleanup path");
+        let error = super::resolve_cleanup_model_path_for_settings(&settings, &manifest, None)
+            .expect_err("empty manifest no longer falls back to bundled cleanup models");
 
-        assert_eq!(path, resources.cleanup_model_path);
+        assert!(error.contains("Local cleanup manifest is unavailable"));
+    }
+
+    #[test]
+    fn asr_does_not_fall_back_to_bundled_or_settings_path_when_manifest_is_empty() {
+        let settings = LocalModelSettings::default();
+        let manifest = empty_manifest();
+
+        let error = super::resolve_asr_model_path_for_settings(&settings, &manifest, None)
+            .expect_err(
+                "empty manifest no longer falls back to bundled or settings ASR model paths",
+            );
+
+        assert!(error.contains("Local ASR manifest is unavailable"));
     }
 
     #[test]
@@ -1174,7 +1108,7 @@ mod tests {
         };
 
         let manifest = empty_manifest();
-        super::sync_cleanup_for_settings(&manager, &settings, None, &manifest, None);
+        super::sync_cleanup_for_settings(&manager, &settings, &manifest, None);
 
         assert_eq!(
             manager.cleanup().status().state,
@@ -1187,11 +1121,9 @@ mod tests {
     #[test]
     fn recognition_language_sync_rearms_asr_without_loading() {
         let tempdir = tempfile::tempdir().expect("tempdir");
-        let resources = InferenceResourcePaths::from_resource_root_for_arch(
-            tempdir.path().to_path_buf(),
-            CpuArchitecture::Aarch64,
-        );
-        create_file(&resources.asr_model_path);
+        let storage = AssetStorage::new(tempdir.path().join("models"));
+        let manifest = test_asr_manifest("medium");
+        create_file(&storage.asset_path("medium", AssetRole::Asr));
         let asr_loads = Arc::new(AtomicUsize::new(0));
         let seen_asr_configs = Arc::new(Mutex::new(Vec::new()));
         let manager = test_manager(
@@ -1200,16 +1132,14 @@ mod tests {
             Arc::clone(&seen_asr_configs),
         );
 
-        let manifest = empty_manifest();
         super::sync_asr_for_settings(
             &manager,
             &LocalModelSettings {
                 recognition_language: RecognitionLanguage::En,
                 ..LocalModelSettings::default()
             },
-            Some(&resources),
             &manifest,
-            None,
+            Some(&storage),
         );
         let first_generation = manager.asr().snapshot().generation;
         super::sync_asr_for_settings(
@@ -1218,9 +1148,8 @@ mod tests {
                 recognition_language: RecognitionLanguage::Zh,
                 ..LocalModelSettings::default()
             },
-            Some(&resources),
             &manifest,
-            None,
+            Some(&storage),
         );
 
         assert_eq!(manager.asr().snapshot().generation, first_generation + 1);

@@ -82,8 +82,6 @@ impl<'de> serde::Deserialize<'de> for CleanupMode {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalModelSettings {
-    pub whisper_binary_path: Option<String>,
-    pub whisper_model_path: Option<String>,
     #[serde(default = "default_asr_model_id")]
     pub asr_model_id: String,
     #[serde(default)]
@@ -95,8 +93,6 @@ pub struct LocalModelSettings {
 impl Default for LocalModelSettings {
     fn default() -> Self {
         Self {
-            whisper_binary_path: None,
-            whisper_model_path: None,
             asr_model_id: default_asr_model_id(),
             recognition_language: RecognitionLanguage::Auto,
             cleanup_mode: CleanupMode::PunctuationOnly,
@@ -107,8 +103,6 @@ impl Default for LocalModelSettings {
 impl LocalModelSettings {
     pub fn normalized(self) -> Self {
         Self {
-            whisper_binary_path: normalize_optional_path(self.whisper_binary_path),
-            whisper_model_path: normalize_optional_path(self.whisper_model_path),
             asr_model_id: normalize_asr_model_id(self.asr_model_id),
             recognition_language: self.recognition_language,
             cleanup_mode: self.cleanup_mode,
@@ -117,8 +111,6 @@ impl LocalModelSettings {
 
     pub fn to_frontend(&self) -> Self {
         Self {
-            whisper_binary_path: Some(self.whisper_binary_path.clone().unwrap_or_default()),
-            whisper_model_path: Some(self.whisper_model_path.clone().unwrap_or_default()),
             asr_model_id: self.asr_model_id.clone(),
             recognition_language: self.recognition_language,
             cleanup_mode: self.cleanup_mode,
@@ -136,15 +128,6 @@ fn normalize_asr_model_id(id: String) -> String {
         default_asr_model_id()
     } else {
         id.to_string()
-    }
-}
-
-fn normalize_optional_path(path: Option<String>) -> Option<String> {
-    let path = path?.trim().to_string();
-    if path.is_empty() {
-        None
-    } else {
-        Some(path)
     }
 }
 
@@ -284,8 +267,6 @@ mod tests {
         let state = AppState::default();
 
         state.set_local_model_settings(super::LocalModelSettings {
-            whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
-            whisper_model_path: Some("/models/base.bin".to_string()),
             asr_model_id: "medium".to_string(),
             recognition_language: RecognitionLanguage::Auto,
             cleanup_mode: CleanupMode::PunctuationOnly,
@@ -294,8 +275,6 @@ mod tests {
         assert_eq!(
             state.local_model_settings(),
             super::LocalModelSettings {
-                whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
-                whisper_model_path: Some("/models/base.bin".to_string()),
                 asr_model_id: "medium".to_string(),
                 recognition_language: RecognitionLanguage::Auto,
                 cleanup_mode: CleanupMode::PunctuationOnly,
@@ -335,8 +314,6 @@ mod tests {
         let state = AppState::default();
 
         state.set_local_model_settings(super::LocalModelSettings {
-            whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
-            whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
             asr_model_id: "large-v3-turbo".to_string(),
             recognition_language: RecognitionLanguage::Zh,
             cleanup_mode: CleanupMode::FullCleanup,
@@ -345,8 +322,6 @@ mod tests {
         assert_eq!(
             state.local_model_settings(),
             super::LocalModelSettings {
-                whisper_binary_path: Some("/opt/homebrew/bin/whisper-cli".to_string()),
-                whisper_model_path: Some("/models/ggml-large-v3-turbo.bin".to_string()),
                 asr_model_id: "large-v3-turbo".to_string(),
                 recognition_language: RecognitionLanguage::Zh,
                 cleanup_mode: CleanupMode::FullCleanup,
@@ -395,8 +370,6 @@ mod tests {
     #[test]
     fn cleanup_mode_serializes_as_snake_case() {
         let json = serde_json::to_value(super::LocalModelSettings {
-            whisper_binary_path: None,
-            whisper_model_path: None,
             asr_model_id: "medium".to_string(),
             recognition_language: RecognitionLanguage::Auto,
             cleanup_mode: CleanupMode::FullCleanup,
@@ -405,6 +378,22 @@ mod tests {
 
         assert_eq!(json["cleanupMode"], "full_cleanup");
         assert_eq!(json["asrModelId"], "medium");
+    }
+
+    #[test]
+    fn legacy_sidecar_path_keys_deserialize_but_are_not_serialized() {
+        let settings: super::LocalModelSettings = serde_json::from_str(
+            r#"{"whisperBinaryPath":"/bin/whisper-cli","whisperModelPath":"/models/model.bin","asrModelId":"medium","recognitionLanguage":"en","cleanupMode":"punctuation_only"}"#,
+        )
+        .expect("legacy settings keys should not break deserialization");
+
+        assert_eq!(settings.asr_model_id, "medium");
+        assert_eq!(settings.recognition_language, RecognitionLanguage::En);
+        assert_eq!(settings.cleanup_mode, CleanupMode::PunctuationOnly);
+
+        let json = serde_json::to_value(settings).expect("settings serialize");
+        assert!(json.get("whisperBinaryPath").is_none());
+        assert!(json.get("whisperModelPath").is_none());
     }
 
     #[test]

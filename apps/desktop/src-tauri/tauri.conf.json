@@ -68,7 +68,7 @@
     "targets": ["app"],
     "icon": ["icons/icon.png"],
     "resources": {
-      "resources/": ""
+      "resources/models.manifest.json": "resources/models.manifest.json"
     },
     "macOS": {
       "signingIdentity": "-",

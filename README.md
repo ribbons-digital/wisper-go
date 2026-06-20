@@ -5,8 +5,8 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
 ## Features
 
 - Hold `Command + Shift + Space` to dictate.
-- Bundled offline speech recognition with whisper.cpp.
-- Bundled offline cleanup for punctuation-only cleanup or full cleanup/classification without translating original language.
+- In-process offline speech recognition with whisper.cpp after first-run model download.
+- In-process offline cleanup for punctuation-only cleanup or full cleanup/classification after model download, without translating original language.
 - Recognition language modes: Auto, English, and Chinese.
 - Floating status-only recorder pill.
 - Separate floating language control that cycles Auto → EN → ZH.
@@ -25,52 +25,33 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
    - **Chinese**: passes `--language zh`.
 6. Choose a cleanup mode:
    - **Off**: insert the raw Whisper transcript.
-   - **Punctuation only**: default; uses bundled local cleanup to add punctuation/capitalization only.
-   - **Full cleanup and commands**: uses bundled local cleanup for the existing cleanup/classification flow.
+   - **Punctuation only**: default; uses local cleanup to add punctuation/capitalization only.
+   - **Full cleanup and commands**: downloads the optional Full-cleanup Pack before enabling the cleanup/classification flow.
 7. Hold `Command + Shift + Space`, speak, then release to transcribe and insert.
 
 ### Offline inference
 
-Product builds bundle the complete offline inference stack inside `Wispergo.app`:
+Product builds are thin: they bundle the app, in-process GGML engines, and the Asset Manifest, but not model files. On first run, Wispergo downloads default model Assets into app support storage and verifies them before use.
 
-- `whisper.cpp`
-- `ggml-large-v3-turbo` for ASR
-- in-process `llama-cpp-2` for cleanup
-- Qwen2.5-3B-Instruct GGUF cleanup model
+Default setup downloads:
 
-Normal users should not install Ollama, whisper.cpp, llama.cpp, or model files separately. If bundled cleanup is unavailable or too slow, Wispergo falls back to inserting the raw ASR transcript.
+- ASR `medium` (`ggml-medium-q5_0.bin`)
+- Punctuation cleanup (`Qwen2.5-0.5B-Instruct` GGUF)
+
+Optional settings downloads:
+
+- ASR Accuracy Pack (`large-v3-turbo`)
+- Full-cleanup Pack (`Qwen2.5-3B-Instruct` GGUF)
+
+Normal users should not install Ollama, whisper.cpp, llama.cpp, or model files separately. After setup, speech recognition and cleanup run locally/offline. If punctuation cleanup is unavailable, unsafe, or too slow, Wispergo falls back to inserting the raw ASR transcript.
 
 Developer overrides are available for debugging and experimentation:
 
 ```bash
-export WISPERGO_WHISPER_MODEL=/path/to/ggml-large-v3-turbo.bin
+export WISPERGO_WHISPER_MODEL=/path/to/ggml-model.bin
 export WISPERGO_CLEANUP_BACKEND=ollama
 export WISPERGO_OLLAMA_BASE_URL=http://127.0.0.1:11434
 export WISPERGO_OLLAMA_MODEL=qwen2.5:3b-instruct
-```
-
-Bundled binaries and model files are **not committed to git**. Only the resource directories are tracked. Before building a fully offline bundle, stage the assets yourself:
-
-```text
-apps/desktop/src-tauri/resources/
-  models/
-    asr/
-      ggml-large-v3-turbo.bin
-    cleanup/
-      qwen2.5-3b-instruct-q4_k_m.gguf
-```
-
-Download sources:
-
-- ASR runs in-process via `whisper-rs` (linked at build time); no `whisper-cli` binary is staged. ASR model: <https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin>
-- Cleanup runs in-process via `llama-cpp-2` (linked at build time); no cleanup sidecar binary is staged. Cleanup model: <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF/resolve/main/qwen2.5-3b-instruct-q4_k_m.gguf>
-
-For local Apple Silicon testing, staging both model files is enough. Full bundled-path cleanup is tracked in Phase 6 of the migration roadmap.
-
-Build an offline release bundle with:
-
-```bash
-pnpm desktop:build:offline-release
 ```
 
 ## Development
@@ -164,14 +145,14 @@ Core runtime flow:
 1. Global shortcut starts/stops recording.
 2. Desktop app captures microphone audio.
 3. Audio is trimmed and transcribed in-process via whisper.cpp (linked via `whisper-rs`).
-4. Cleanup mode decides whether to skip cleanup, run punctuation-only bundled cleanup, or run full bundled cleanup/classification.
+4. Cleanup mode decides whether to skip cleanup, run punctuation-only local cleanup, or run full local cleanup/classification.
 5. Result is inserted into the focused app or copied when insertion is unavailable.
 
 ## Troubleshooting
 
 ### Offline inference assets are unavailable
 
-Product builds should include the bundled ASR and cleanup binaries/models. If Wispergo reports missing offline assets, rebuild with `pnpm desktop:build:offline-release` or reinstall the app.
+Open settings and let Wispergo download or repair model Assets. If the Asset Manifest itself is missing, reinstall the app. Developers can also set `WISPERGO_WHISPER_MODEL` to a local GGML ASR model for ASR debugging.
 
 ### No audio or no speech detected
 

@@ -30,8 +30,6 @@ export type CleanupMode = "off" | "punctuation_only" | "full_cleanup";
 export type AsrModelId = "medium" | "large-v3-turbo" | string;
 
 export type LocalModelSettings = {
-  whisperBinaryPath: string;
-  whisperModelPath: string;
   asrModelId: AsrModelId;
   recognitionLanguage: RecognitionLanguage;
   cleanupMode: CleanupMode;

@@ -41,8 +41,6 @@ vi.mock("../lib/tauriApi", () => ({
   cleanupRuntimeStatus: vi.fn().mockResolvedValue({ state: "ready", message: null }),
   fallbackPolicyLabel: vi.fn().mockResolvedValue("prefer_local_ask_before_cloud"),
   localModelSettings: vi.fn().mockResolvedValue({
-    whisperBinaryPath: "/usr/local/bin/whisper-cli",
-    whisperModelPath: "/models/base.bin",
     asrModelId: "medium",
     recognitionLanguage: "auto",
     cleanupMode: "punctuation_only",
@@ -94,8 +92,6 @@ describe("App", () => {
     vi.mocked(accessibilityStatus).mockResolvedValue({ granted: false, canPrompt: true });
     vi.mocked(cleanupRuntimeStatus).mockResolvedValue({ state: "ready", message: null });
     vi.mocked(localModelSettings).mockResolvedValue({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
@@ -288,8 +284,6 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(setLocalModelSettings).toHaveBeenCalledWith({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "medium",
       recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
@@ -305,8 +299,6 @@ describe("App", () => {
 
   it("does not check cleanup runtime status when saved cleanup mode is off", async () => {
     vi.mocked(localModelSettings).mockResolvedValueOnce({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "off",

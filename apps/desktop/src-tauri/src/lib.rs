@@ -1662,6 +1662,8 @@ mod tests {
             .and_then(Path::parent)
             .expect("repo root");
         let package = fs::read_to_string(root_dir.join("package.json")).expect("package json");
+        let build_script = fs::read_to_string(root_dir.join("scripts/desktop-build.sh"))
+            .expect("desktop build wrapper");
         let sign_script = fs::read_to_string(root_dir.join("scripts/sign-macos-app.sh"))
             .expect("stable macOS signing script");
         let ensure_script =
@@ -1671,9 +1673,10 @@ mod tests {
             fs::read_to_string(root_dir.join("scripts/trust-local-codesign-cert.sh"))
                 .expect("local macOS code-signing trust script");
 
-        assert!(package.contains("scripts/ensure-local-codesign-cert.sh"));
-        assert!(package.contains("scripts/sign-macos-app.sh"));
+        assert!(package.contains("scripts/desktop-build.sh"));
         assert!(package.contains("scripts/trust-local-codesign-cert.sh"));
+        assert!(build_script.contains("scripts/ensure-local-codesign-cert.sh"));
+        assert!(build_script.contains("scripts/sign-macos-app.sh"));
         assert!(sign_script.contains("--requirements"));
         assert!(sign_script.contains("IDENTIFIER=\"com.ribbonsdigital.wispergo\""));
         assert!(sign_script.contains("Wispergo Local Code Signing"));
@@ -1684,26 +1687,22 @@ mod tests {
     }
 
     #[test]
-    fn macos_bundle_layout_check_requires_current_arch_inference_assets() {
+    fn macos_bundle_resources_include_only_asset_manifest() {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let root_dir = manifest_dir
-            .parent()
-            .and_then(Path::parent)
-            .and_then(Path::parent)
-            .expect("repo root");
-        let script =
-            fs::read_to_string(root_dir.join("scripts/check-macos-bundle-inference-layout.sh"))
-                .expect("bundle inference layout check script");
+        let config =
+            fs::read_to_string(manifest_dir.join("tauri.conf.json")).expect("tauri config");
+        let config: Value = serde_json::from_str(&config).expect("valid tauri config json");
+        let resources = config["bundle"]["resources"]
+            .as_object()
+            .expect("bundle resources configured as object");
 
-        assert!(script.contains("uname -m"));
-        assert!(script.contains("arm64") && script.contains("macos-aarch64"));
-        assert!(script.contains("x86_64") && script.contains("macos-x86_64"));
-        assert!(script.contains("bin/$current_arch/whisper-cli"));
-        let retired_cleanup_sidecar = ["bin/$current_arch/llama", "-server"].concat();
-        assert!(!script.contains(&retired_cleanup_sidecar));
-        assert!(script.contains("models/asr/ggml-large-v3-turbo.bin"));
-        assert!(script.contains("models/cleanup/qwen2.5-3b-instruct-q4_k_m.gguf"));
-        assert!(script.contains("[[ ! -f \"$RESOURCE_DIR/$relative\" ]]"));
+        assert_eq!(resources.len(), 1);
+        assert_eq!(
+            resources
+                .get("resources/models.manifest.json")
+                .and_then(Value::as_str),
+            Some("resources/models.manifest.json")
+        );
     }
 
     #[test]

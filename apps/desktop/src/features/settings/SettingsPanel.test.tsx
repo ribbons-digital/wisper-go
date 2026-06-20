@@ -23,8 +23,6 @@ function renderSettingsPanel(overrides: Partial<SettingsPanelProps> = {}) {
     microphone: { granted: true, canPrompt: true },
     accessibility: { granted: true, canPrompt: true },
     modelSettings: {
-      whisperBinaryPath: "",
-      whisperModelPath: "",
       asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
@@ -59,8 +57,6 @@ describe("SettingsPanel", () => {
     renderSettingsPanel({
       onModelSettingsSave,
       modelSettings: {
-        whisperBinaryPath: "/usr/local/bin/whisper-cli",
-        whisperModelPath: "/models/base.bin",
         asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "punctuation_only",
@@ -71,8 +67,6 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "medium",
       recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
@@ -85,8 +79,6 @@ describe("SettingsPanel", () => {
     renderSettingsPanel({
       onModelSettingsSave,
       modelSettings: {
-        whisperBinaryPath: "/usr/local/bin/whisper-cli",
-        whisperModelPath: "/models/base.bin",
         asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "punctuation_only",
@@ -97,8 +89,6 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "large-v3-turbo",
       recognitionLanguage: "auto",
       cleanupMode: "punctuation_only",
@@ -111,8 +101,6 @@ describe("SettingsPanel", () => {
     renderSettingsPanel({
       onModelSettingsSave,
       modelSettings: {
-        whisperBinaryPath: "/usr/local/bin/whisper-cli",
-        whisperModelPath: "/models/base.bin",
         asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "punctuation_only",
@@ -123,8 +111,6 @@ describe("SettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save model settings" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
-      whisperBinaryPath: "/usr/local/bin/whisper-cli",
-      whisperModelPath: "/models/base.bin",
       asrModelId: "medium",
       recognitionLanguage: "auto",
       cleanupMode: "full_cleanup",
@@ -159,8 +145,6 @@ describe("SettingsPanel", () => {
   it("hides cleanup runtime status when cleanup mode is off", () => {
     renderSettingsPanel({
       modelSettings: {
-        whisperBinaryPath: "",
-        whisperModelPath: "",
         asrModelId: "medium",
         recognitionLanguage: "auto",
         cleanupMode: "off",

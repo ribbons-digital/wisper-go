@@ -1,15 +1,9 @@
 //! Asset management commands: load the bundled manifest, report readiness,
 //! and trigger first-run download of default assets with frontend events.
 //!
-//! Bridge state (Phase 1.2): this is plumbing only. The live dictation path
-//! still uses the bundled sidecar and does NOT consume downloaded assets yet.
-//! The dictation-readiness gate ("downloading models" blocking dictation) is
-//! deferred to Phase 2, when the in-process ASR provider replaces the sidecar.
-//! Gating now would block dictation that currently works via the bundle.
-//!
-//! The bundled `models.manifest.json` ships as a structural placeholder
-//! (empty assets) in this phase; real model entries land in Phase 5 (model
-//! tiering) once models are locked and SHA-256s computed.
+//! The bundled `models.manifest.json` is the source of truth for downloadable
+//! model Assets. Live dictation resolves verified model files from app-support
+//! storage; the app bundle intentionally does not include model binaries.
 
 use std::sync::Mutex;
 

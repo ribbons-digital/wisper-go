@@ -610,11 +610,17 @@ export function App() {
       ? "app-shell language-surface"
       : "app-shell";
   const showStatusMessages = !isRecorderSurface && !isLanguageSurface;
+  const recorderSetupNeeded = error?.startsWith("Finish Wispergo setup before dictating") ?? false;
 
   return (
     <main className={shellClassName}>
       {isRecorderSurface ? (
-        <FloatingRecorder status={status} busy={pending} expanded={floatingChromeExpanded} />
+        <FloatingRecorder
+          status={status}
+          busy={pending}
+          expanded={floatingChromeExpanded}
+          setupNeeded={recorderSetupNeeded}
+        />
       ) : null}
       {isLanguageSurface ? (
         <LanguageToggle
@@ -750,6 +756,12 @@ function insertSummary(output: StopRecordingOutput): string {
   return `Copied to clipboard; auto-paste failed. Check Accessibility permission: ${output.result.text}`;
 }
 
-function errorMessage(_err: unknown): string {
+function errorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.startsWith("Finish Wispergo setup before dictating")) {
+    return err.message;
+  }
+  if (typeof err === "string" && err.startsWith("Finish Wispergo setup before dictating")) {
+    return err;
+  }
   return "Wispergo could not complete that action. Check permissions and try again.";
 }

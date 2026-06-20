@@ -263,18 +263,19 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     safety notes, quality notes, and latency.
   - Design approved: `docs/superpowers/specs/2026-06-20-punctuation-safety-redesign-phase-5-2.md`.
 
-- **5.3 Full-cleanup Pack (3B) opt-in** 🟡 implemented locally; final verification/PR pending
-  - On branch `phase-5-3-full-cleanup-pack`: added the Qwen2.5-3B-Instruct
-    `cleanup_full` manifest Asset with `default: false`, so it is not part of
-    first-run/default downloads.
+- **5.3 Full-cleanup Pack (3B) opt-in** 🟡 PR #16 open; merge pending
+  - In PR #16 on branch `phase-5-3-full-cleanup-pack`: added the
+    Qwen2.5-3B-Instruct `cleanup_full` manifest Asset with `default: false`, so
+    it is not part of first-run/default downloads.
   - Selecting Cleanup Mode = Full cleanup downloads/verifies the Full-cleanup
     Pack before activation; if download/verification fails, previous settings
     remain active.
   - Punctuation-only remains unaffected by a missing Full-cleanup Pack.
   - `WISPERGO_CLEANUP_BACKEND=ollama` remains a dev override and does not require
     local `cleanup_full` Assets.
-  - Next: run the full verification gate, open the Phase 5.3 PR, and wait for
-    user merge; after merge, sync `main`, clean the branch, and start Phase 6.
+  - Full verification gate passed before PR #16.
+  - Next: wait for user merge; after merge, sync `main`, clean the branch, and
+    start Phase 6.
 
 ## Phase 6 — Retire Bundled Path ⬜
 

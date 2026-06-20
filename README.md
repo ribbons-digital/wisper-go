@@ -16,22 +16,25 @@ Wispergo is a local-first macOS dictation app built with Tauri, React, Rust, whi
 ## Using the app
 
 1. Build or open `Wispergo.app`.
-2. Open settings from the menu bar/tray item.
+2. On first launch, Wispergo opens setup if permissions or required local models are missing.
 3. Grant microphone permission.
 4. Grant accessibility permission so Wispergo can insert text into other apps.
-5. Choose a recognition language:
+5. Let Wispergo download the required default local models. This is a one-time setup step.
+6. Choose a recognition language:
    - **Auto**: let Whisper detect the language. Auto can bias toward the first spoken language.
    - **English**: passes `--language en`.
    - **Chinese / Mixed Chinese-English**: passes `--language zh`; recommended for Chinese or mixed Chinese/English dictation.
-6. Choose a cleanup mode:
+7. Choose a cleanup mode:
    - **Off**: insert the raw Whisper transcript.
    - **Punctuation only**: default; uses local cleanup to add punctuation/capitalization only.
    - **Full cleanup and commands**: downloads the optional Full-cleanup Pack before enabling the cleanup/classification flow.
-7. Hold `Command + Shift + Space`, speak, then release to transcribe and insert.
+8. Hold `Command + Shift + Space`, speak, then release to transcribe and insert.
+
+Dictation requires microphone permission and the required default local models. If you press the shortcut before setup is complete, Wispergo opens setup and shows a concise setup-needed message. Accessibility permission is required for direct insertion into other apps; without it, Wispergo may fall back to copying text.
 
 ### Offline inference
 
-Product builds are thin: they bundle the app, in-process GGML engines, and the Asset Manifest, but not model files. On first run, Wispergo downloads default model Assets into app support storage and verifies them before use.
+Product builds are thin: they bundle the app, in-process GGML engines, and the Asset Manifest, but not model files. On first run, Wispergo opens setup when required model Assets are missing, downloads default Assets into app support storage, and verifies them before use.
 
 Default setup downloads:
 
@@ -152,7 +155,7 @@ Core runtime flow:
 
 ### Offline inference assets are unavailable
 
-Open settings and let Wispergo download or repair model Assets. If the Asset Manifest itself is missing, reinstall the app. Developers can also set `WISPERGO_WHISPER_MODEL` to a local GGML ASR model for ASR debugging.
+Open settings and let Wispergo download or repair model Assets. On a fresh install, Wispergo should open setup automatically when required default Assets are missing. If the Asset Manifest itself is missing, reinstall the app. Developers can also set `WISPERGO_WHISPER_MODEL` to a local GGML ASR model for ASR debugging.
 
 ### No audio or no speech detected
 

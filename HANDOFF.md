@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during R1 first-run setup planning)
-**Next session focus:** Review/approve the R1 implementation plan, then implement first-run setup and model readiness UX before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during R1 first-run setup implementation)
+**Next session focus:** Finish verifying R1, open PR, wait for merge, then consider R2 icon refresh before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -60,7 +60,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 R1 planning | — |
+| Release readiness and UI polish | 🟡 R1 implementation | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -124,9 +124,9 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Issue:** A fresh end-user install needs guided setup for permissions and required model downloads, plus clear behavior if the shortcut is used before dictation is ready.
 
-**Implementation status:** In progress on branch `r1-first-run-setup-readiness`. The R1 implementation plan is saved at `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`; no production code has been changed yet.
+**Implementation status:** In progress on branch `r1-first-run-setup-readiness`. Added a setup checklist to Settings, auto-shows setup when microphone, Accessibility, or required default Assets are incomplete, and guards dictation start with clear setup-needed errors when microphone permission or required models are missing. README and roadmap are updated.
 
-**Next step:** User approves the R1 plan, then implementation starts with RED tests for the Settings setup checklist.
+**Next step:** Finish full verification, open PR, and wait for user merge. Recommended next slice after merge is R2 icon refresh because Dock/menu bar contrast is a visible release-readiness issue.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -169,4 +169,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, and release-readiness design is merged via PR #21. R1 implementation planning is in progress via `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, and release-readiness design is merged via PR #21. R1 implementation is in progress on `r1-first-run-setup-readiness` with setup checklist, setup auto-show, and dictation readiness guard implemented. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

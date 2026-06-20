@@ -334,7 +334,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     model downloads, icons, recording waveform, GitHub Actions, signing,
     notarization, docs, and implementation slices.
 
-- **R1 First-run setup and model readiness UX** 🟡
+- **R1 First-run setup and model readiness UX** ✅
   - Plan: `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
   - Auto-show setup when permissions or required default Assets are missing.
   - Make model download status, retry, and dictation readiness obvious to

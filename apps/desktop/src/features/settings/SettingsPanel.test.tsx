@@ -131,6 +131,14 @@ describe("SettingsPanel", () => {
     });
   });
 
+  it("explains full cleanup pack activation", () => {
+    renderSettingsPanel();
+
+    expect(
+      screen.getByText("Full cleanup downloads the optional 3B Full-cleanup Pack before activation."),
+    ).toBeInTheDocument();
+  });
+
   it("shows ready offline punctuation status", () => {
     renderSettingsPanel({
       cleanupRuntime: { state: "ready", message: null },

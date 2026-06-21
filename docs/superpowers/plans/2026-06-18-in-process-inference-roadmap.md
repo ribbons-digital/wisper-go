@@ -342,11 +342,14 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - DoD: clean-app-support smoke reaches a working default setup without manual
     model placement; tests cover setup/readiness states.
 
-- **R2 Icon refresh** ⬜
+- **R2 Icon refresh** ✅
   - Replace app/Dock icon and add a separate menu bar/tray icon optimized for
     small light/dark system chrome.
   - DoD: `pnpm desktop:build` includes release-quality assets; manual smoke
     verifies Dock and menu bar contrast.
+  - Implementation: app icon now uses a high-contrast full-color tile;
+    menu-bar/tray icon uses separate `tray-template.png` wired with macOS
+    template rendering for light/dark appearances.
 
 - **R3 Recording waveform UI** ⬜
   - Replace the text-heavy recording pill with a compact waveform while holding

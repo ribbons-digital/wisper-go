@@ -24,7 +24,7 @@ use commands::settings::{
 };
 use inference::manager::InferenceManager;
 use state::AppState;
-use tauri::{Emitter, Manager};
+use tauri::{include_image, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 #[tauri::command]
@@ -165,7 +165,10 @@ fn setup_menu_bar(app: &mut tauri::App) -> tauri::Result<()> {
     let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = tauri::menu::Menu::with_items(app, &[&open_settings, &quit])?;
 
-    let mut tray = tauri::tray::TrayIconBuilder::new()
+    let tray_icon = include_image!("./icons/tray-template.png");
+    let tray = tauri::tray::TrayIconBuilder::new()
+        .icon(tray_icon)
+        .icon_as_template(true)
         .tooltip("Wispergo")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -188,10 +191,6 @@ fn setup_menu_bar(app: &mut tauri::App) -> tauri::Result<()> {
                 let _ = show_settings(tray.app_handle());
             }
         });
-
-    if let Some(icon) = app.default_window_icon() {
-        tray = tray.icon(icon.clone());
-    }
 
     tray.build(app)?;
     Ok(())
@@ -1147,6 +1146,28 @@ mod tests {
             .map(|line| line.trim().trim_end_matches(',').to_string())
             .filter(|line| !line.is_empty())
             .collect()
+    }
+
+    #[test]
+    fn tray_uses_separate_template_icon_for_light_and_dark_menu_bars() {
+        let production_source = include_str!("lib.rs");
+        let setup_menu_bar = production_source
+            .split("fn setup_menu_bar(")
+            .nth(1)
+            .and_then(|source| source.split("\nfn should_hide_window_on_close").next())
+            .expect("setup_menu_bar function body");
+
+        assert!(setup_menu_bar.contains("include_image!(\"./icons/tray-template.png\")"));
+        assert!(setup_menu_bar.contains(".icon_as_template(true)"));
+        assert!(!setup_menu_bar.contains("app.default_window_icon()"));
+    }
+
+    #[test]
+    fn release_icon_assets_exist_for_app_and_tray() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+        assert!(manifest_dir.join("icons/icon.png").exists());
+        assert!(manifest_dir.join("icons/tray-template.png").exists());
     }
 
     #[test]

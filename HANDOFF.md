@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during R1 first-run setup implementation)
-**Next session focus:** Finish verifying R1, open PR, wait for merge, then consider R2 icon refresh before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during R2 icon refresh)
+**Next session focus:** Finish verifying R2 icon refresh, open PR, wait for merge, then consider R3 recording waveform UI before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -21,6 +21,8 @@
 - **Phase 6 is complete and merged** (PR #18): retired bundled sidecar/model paths, kept only the Asset Manifest in the app bundle, removed `InferenceResourcePaths` / `CpuArchitecture` and legacy settings path fields, added a thin-bundle check, and refreshed README/docs for thin-app + first-run downloads.
 - **Language UX follow-up is complete and merged** (PR #19): language-only switching re-arms ASR without re-hashing the selected Asset, while normal settings/model activation still verifies integrity; Chinese mode is documented as Chinese / Mixed for mixed Chinese-English dictation.
 - **Compact ZH label follow-up is complete and merged** (PR #20): the floating badge is back to `ZH` while expanded UI/help copy remains Chinese / Mixed.
+- **Release readiness design is complete and merged** (PR #21): added `PRODUCT.md`, release-readiness spec, and release-readiness roadmap track.
+- **R1 first-run setup readiness is complete and merged** (PR #22): settings shows a setup checklist, setup auto-opens when readiness is incomplete, and dictation start reports setup-needed when microphone permission or required models are missing.
 
 ## The work, in one paragraph
 
@@ -60,7 +62,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 R1 implementation | — |
+| Release readiness and UI polish | 🟡 R2 implementation | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -120,13 +122,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: release readiness and UI polish planning
+## Current slice: R2 icon refresh
 
-**Issue:** A fresh end-user install needs guided setup for permissions and required model downloads, plus clear behavior if the shortcut is used before dictation is ready.
+**Issue:** The old shared app/tray icon had poor contrast and was too small in the macOS menu bar, especially across light/dark system appearances.
 
-**Implementation status:** In progress on branch `r1-first-run-setup-readiness`. Added a setup checklist to Settings, auto-shows setup when microphone, Accessibility, or required default Assets are incomplete, and guards dictation start with clear setup-needed errors when microphone permission or required models are missing. README and roadmap are updated.
+**Implementation status:** In progress on branch `r2-icon-refresh-dark-light`. Added a high-contrast full-color app/Dock icon, a separate `tray-template.png` menu-bar icon, and wired the tray to use macOS template rendering with `icon_as_template(true)` so the system tints it for light and dark menu bars. Added tests for separate tray template wiring and asset presence.
 
-**Next step:** Finish full verification, open PR, and wait for user merge. Recommended next slice after merge is R2 icon refresh because Dock/menu bar contrast is a visible release-readiness issue.
+**Next step:** Finish build/manual visual smoke, open PR, and wait for user merge. Recommended next slice after merge is R3 recording waveform UI because it is the next visible release-polish item in the core dictation flow.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -169,4 +171,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, and release-readiness design is merged via PR #21. R1 implementation is in progress on `r1-first-run-setup-readiness` with setup checklist, setup auto-show, and dictation readiness guard implemented. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, and R1 setup readiness is merged via PR #22. R2 icon refresh is in progress on `r2-icon-refresh-dark-light` with separate app and tray icons implemented. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

@@ -63,8 +63,8 @@ describe("SettingsPanel", () => {
       },
     });
 
-    await user.selectOptions(screen.getByLabelText("Recognition language"), "zh");
-    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+    await user.selectOptions(screen.getByLabelText("Language"), "zh");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
       asrModelId: "medium",
@@ -86,7 +86,7 @@ describe("SettingsPanel", () => {
     });
 
     await user.selectOptions(screen.getByLabelText("ASR model"), "large-v3-turbo");
-    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
       asrModelId: "large-v3-turbo",
@@ -107,8 +107,8 @@ describe("SettingsPanel", () => {
       },
     });
 
-    await user.selectOptions(screen.getByLabelText("Cleanup mode"), "full_cleanup");
-    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+    await user.selectOptions(screen.getByLabelText("Cleanup"), "full_cleanup");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(onModelSettingsSave).toHaveBeenCalledWith({
       asrModelId: "medium",
@@ -131,9 +131,9 @@ describe("SettingsPanel", () => {
     });
 
     expect(await screen.findByText("Setup needed")).toBeInTheDocument();
-    expect(screen.getByText("Microphone permission")).toBeInTheDocument();
-    expect(screen.getByText("Accessibility permission")).toBeInTheDocument();
-    expect(screen.getByText("Required local models")).toBeInTheDocument();
+    expect(screen.getAllByText("Microphone").length).toBeGreaterThan(0);
+    expect(screen.getByText("Accessibility")).toBeInTheDocument();
+    expect(screen.getByText("Local models")).toBeInTheDocument();
   });
 
   it("shows ready when permissions and required models are ready", async () => {
@@ -145,12 +145,26 @@ describe("SettingsPanel", () => {
     expect(await screen.findByText("Ready for dictation")).toBeInTheDocument();
   });
 
+  it("presents settings as product dashboard instead of engineering diagnostics", async () => {
+    const { assetReadiness } = await import("../../lib/tauriApi");
+    vi.mocked(assetReadiness).mockResolvedValueOnce({ state: "ready" });
+
+    renderSettingsPanel({ fallbackPolicy: "prefer_local_ask_before_cloud" });
+
+    expect(await screen.findByText("Ready for dictation")).toBeInTheDocument();
+    expect(screen.getByText("Dictation"));
+    expect(screen.getByText("Input"));
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
+    expect(screen.queryByText(/Fallback policy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/prefer_local_ask_before_cloud/i)).not.toBeInTheDocument();
+  });
+
   it("explains Chinese mixed-language recognition mode", () => {
     renderSettingsPanel();
 
     expect(
       screen.getByText(
-        "Use Chinese / Mixed for Chinese-English dictation; Auto can bias toward the first language spoken.",
+        "Use Chinese / Mixed for Chinese-English dictation. Full cleanup downloads the optional 3B pack before activation.",
       ),
     ).toBeInTheDocument();
   });
@@ -159,7 +173,7 @@ describe("SettingsPanel", () => {
     renderSettingsPanel();
 
     expect(
-      screen.getByText("Full cleanup downloads the optional 3B Full-cleanup Pack before activation."),
+      screen.getByText(/Full cleanup downloads the optional 3B pack before activation/),
     ).toBeInTheDocument();
   });
 
@@ -168,7 +182,7 @@ describe("SettingsPanel", () => {
       cleanupRuntime: { state: "ready", message: null },
     });
 
-    expect(screen.getByText("Offline punctuation ready.")).toBeInTheDocument();
+    expect(screen.getByText("Offline punctuation ready")).toBeInTheDocument();
   });
 
   it("shows unavailable offline punctuation status and raw transcripts fallback", () => {
@@ -217,7 +231,7 @@ describe("SettingsPanel", () => {
       onMicrophoneChange,
     });
 
-    await user.selectOptions(screen.getByLabelText("Microphone input"), "2");
+    await user.selectOptions(screen.getByLabelText("Source"), "2");
     expect(onMicrophoneChange).toHaveBeenCalledWith("2");
   });
 
@@ -240,14 +254,15 @@ describe("SettingsPanel", () => {
 
     renderSettingsPanel({ onRefreshMicrophones });
 
-    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await user.click(screen.getByRole("button", { name: "Refresh devices" }));
     expect(onRefreshMicrophones).toHaveBeenCalled();
   });
 
   it("shows the reliable global shortcut", () => {
     renderSettingsPanel();
 
-    expect(screen.getByText("Hold Command + Shift + Space")).toBeInTheDocument();
+    expect(screen.getByText("⌘ ⇧ Space")).toBeInTheDocument();
+    expect(document.querySelectorAll(".settings-icon").length).toBeGreaterThan(0);
   });
 
   it("refreshes accessibility permission on demand", async () => {

@@ -16,14 +16,14 @@ use commands::assets::{
 };
 use commands::recording::{cancel_recording, recording_status, start_recording, stop_recording};
 use commands::settings::{
-    accessibility_status, cleanup_runtime_status, ensure_ollama_setup, fallback_policy_label,
-    list_microphones, load_persisted_settings, local_model_settings, microphone_status,
-    recognition_language, request_accessibility, request_microphone_access, selected_microphone_id,
-    set_local_model_settings, set_microphone_device, set_recognition_language,
-    sync_inference_manager_for_settings,
+    accessibility_status, apply_local_model_settings, cleanup_runtime_status, ensure_ollama_setup,
+    fallback_policy_label, list_microphones, load_persisted_settings, local_model_settings,
+    microphone_status, recognition_language, request_accessibility, request_microphone_access,
+    selected_microphone_id, set_local_model_settings, set_microphone_device,
+    set_recognition_language, sync_inference_manager_for_settings,
 };
 use inference::manager::InferenceManager;
-use state::AppState;
+use state::{AppState, CleanupMode, RecognitionLanguage};
 use tauri::{include_image, Emitter, Manager};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
@@ -156,44 +156,326 @@ fn setup_global_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
+const WISPERGO_TRAY_ID: &str = "wispergo-tray";
+
 fn setup_menu_bar(app: &mut tauri::App) -> tauri::Result<()> {
     #[cfg(target_os = "macos")]
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-    let open_settings =
-        tauri::menu::MenuItem::with_id(app, "open_settings", "Open Settings", true, None::<&str>)?;
-    let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-    let menu = tauri::menu::Menu::with_items(app, &[&open_settings, &quit])?;
+    let menu = build_tray_menu(app)?;
 
     let tray_icon = include_image!("./icons/tray-template.png");
-    let tray = tauri::tray::TrayIconBuilder::new()
+    let tray = tauri::tray::TrayIconBuilder::with_id(WISPERGO_TRAY_ID)
         .icon(tray_icon)
         .icon_as_template(true)
         .tooltip("Wispergo")
         .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-            "open_settings" => {
-                let _ = show_settings(app);
-            }
-            "quit" => {
-                app.exit(0);
-            }
-            _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-            if let tauri::tray::TrayIconEvent::Click {
-                button: tauri::tray::MouseButton::Left,
-                button_state: tauri::tray::MouseButtonState::Up,
-                ..
-            } = event
-            {
-                let _ = show_settings(tray.app_handle());
-            }
-        });
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| handle_tray_menu_event(app, event.id().as_ref()));
 
     tray.build(app)?;
     Ok(())
+}
+
+fn refresh_tray_menu(app: &tauri::AppHandle) {
+    let Some(tray) = app.tray_by_id(WISPERGO_TRAY_ID) else {
+        return;
+    };
+    match build_tray_menu(app) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
+        }
+        Err(err) => eprintln!("tray menu refresh failed: {err}"),
+    }
+}
+
+fn build_tray_menu<R: tauri::Runtime, M: Manager<R>>(
+    manager: &M,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    let settings = manager.state::<AppState>().local_model_settings();
+    let selected_microphone_id = manager.state::<AppState>().selected_microphone_id();
+
+    let language_auto = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_language_id(RecognitionLanguage::Auto),
+        "Auto",
+        true,
+        settings.recognition_language == RecognitionLanguage::Auto,
+        None::<&str>,
+    )?;
+    let language_en = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_language_id(RecognitionLanguage::En),
+        "English",
+        true,
+        settings.recognition_language == RecognitionLanguage::En,
+        None::<&str>,
+    )?;
+    let language_zh = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_language_id(RecognitionLanguage::Zh),
+        "Chinese / Mixed",
+        true,
+        settings.recognition_language == RecognitionLanguage::Zh,
+        None::<&str>,
+    )?;
+    let language = tauri::menu::Submenu::with_id_and_items(
+        manager,
+        "submenu_language",
+        "Language",
+        true,
+        &[&language_auto, &language_en, &language_zh],
+    )?;
+
+    let model_medium = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_asr_model_id("medium"),
+        "Medium",
+        true,
+        settings.asr_model_id == "medium",
+        None::<&str>,
+    )?;
+    let model_accuracy = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_asr_model_id("large-v3-turbo"),
+        "Accuracy Pack",
+        true,
+        settings.asr_model_id == "large-v3-turbo",
+        None::<&str>,
+    )?;
+    let model = tauri::menu::Submenu::with_id_and_items(
+        manager,
+        "submenu_asr_model",
+        "Dictation model",
+        true,
+        &[&model_medium, &model_accuracy],
+    )?;
+
+    let cleanup_off = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_cleanup_id(CleanupMode::Off),
+        "Off",
+        true,
+        settings.cleanup_mode == CleanupMode::Off,
+        None::<&str>,
+    )?;
+    let cleanup_punctuation = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_cleanup_id(CleanupMode::PunctuationOnly),
+        "Punctuation only",
+        true,
+        settings.cleanup_mode == CleanupMode::PunctuationOnly,
+        None::<&str>,
+    )?;
+    let cleanup_full = tauri::menu::CheckMenuItem::with_id(
+        manager,
+        tray_menu_cleanup_id(CleanupMode::FullCleanup),
+        "Full cleanup",
+        true,
+        settings.cleanup_mode == CleanupMode::FullCleanup,
+        None::<&str>,
+    )?;
+    let cleanup = tauri::menu::Submenu::with_id_and_items(
+        manager,
+        "submenu_cleanup",
+        "Cleanup",
+        true,
+        &[&cleanup_off, &cleanup_punctuation, &cleanup_full],
+    )?;
+
+    let microphones = list_microphones().unwrap_or_default();
+    let microphone =
+        tauri::menu::Submenu::with_id(manager, "submenu_microphone", "Microphone", true)?;
+    if microphones.is_empty() {
+        let empty = tauri::menu::MenuItem::with_id(
+            manager,
+            "microphone:none",
+            "No microphones found",
+            false,
+            None::<&str>,
+        )?;
+        microphone.append(&empty)?;
+    } else {
+        let has_system_default_device = microphones.iter().any(is_system_default_microphone);
+        for device in microphones {
+            let checked = tray_microphone_menu_item_checked(
+                selected_microphone_id.as_deref(),
+                &device.id,
+                &device.name,
+                device.is_default,
+                has_system_default_device,
+            );
+            let item = tauri::menu::CheckMenuItem::with_id(
+                manager,
+                tray_menu_microphone_id(&device.id),
+                device.name,
+                true,
+                checked,
+                None::<&str>,
+            )?;
+            microphone.append(&item)?;
+        }
+    }
+
+    let separator = tauri::menu::PredefinedMenuItem::separator(manager)?;
+    let open_settings = tauri::menu::MenuItem::with_id(
+        manager,
+        "open_settings",
+        "Open Settings",
+        true,
+        None::<&str>,
+    )?;
+    let quit = tauri::menu::MenuItem::with_id(manager, "quit", "Quit", true, None::<&str>)?;
+
+    tauri::menu::Menu::with_items(
+        manager,
+        &[
+            &language,
+            &model,
+            &cleanup,
+            &microphone,
+            &separator,
+            &open_settings,
+            &quit,
+        ],
+    )
+}
+
+fn handle_tray_menu_event(app: &tauri::AppHandle, id: &str) {
+    match id {
+        "open_settings" => {
+            let _ = show_settings(app);
+        }
+        "quit" => {
+            app.exit(0);
+        }
+        _ => handle_tray_settings_menu_event(app, id),
+    }
+}
+
+fn handle_tray_settings_menu_event(app: &tauri::AppHandle, id: &str) {
+    if let Some(language) = tray_menu_language_from_id(id) {
+        let app = app.clone();
+        if let Err(err) = set_recognition_language(
+            app.clone(),
+            app.state::<AppState>(),
+            app.state::<InferenceManager>(),
+            language,
+        ) {
+            eprintln!("tray language update failed: {err}");
+        }
+        refresh_tray_menu(&app);
+        return;
+    }
+
+    if let Some(asr_model_id) = tray_menu_asr_model_from_id(id) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut settings = app.state::<AppState>().local_model_settings();
+            settings.asr_model_id = asr_model_id;
+            if let Err(err) = apply_local_model_settings(app.clone(), settings).await {
+                eprintln!("tray dictation model update failed: {err}");
+            }
+            refresh_tray_menu(&app);
+        });
+        return;
+    }
+
+    if let Some(cleanup_mode) = tray_menu_cleanup_from_id(id) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut settings = app.state::<AppState>().local_model_settings();
+            settings.cleanup_mode = cleanup_mode;
+            if let Err(err) = apply_local_model_settings(app.clone(), settings).await {
+                eprintln!("tray cleanup mode update failed: {err}");
+            }
+            refresh_tray_menu(&app);
+        });
+        return;
+    }
+
+    if let Some(device_id) = tray_menu_microphone_from_id(id) {
+        if let Err(err) = set_microphone_device(app.state::<AppState>(), Some(device_id)) {
+            eprintln!("tray microphone update failed: {err}");
+        }
+        refresh_tray_menu(app);
+    }
+}
+
+fn tray_menu_language_id(language: RecognitionLanguage) -> String {
+    match language {
+        RecognitionLanguage::Auto => "language:auto".to_string(),
+        RecognitionLanguage::En => "language:en".to_string(),
+        RecognitionLanguage::Zh => "language:zh".to_string(),
+    }
+}
+
+fn tray_menu_language_from_id(id: &str) -> Option<RecognitionLanguage> {
+    match id {
+        "language:auto" => Some(RecognitionLanguage::Auto),
+        "language:en" => Some(RecognitionLanguage::En),
+        "language:zh" => Some(RecognitionLanguage::Zh),
+        _ => None,
+    }
+}
+
+fn tray_menu_asr_model_id(model_id: &str) -> String {
+    format!("asr_model:{model_id}")
+}
+
+fn tray_menu_asr_model_from_id(id: &str) -> Option<String> {
+    id.strip_prefix("asr_model:").map(str::to_string)
+}
+
+fn tray_menu_cleanup_id(mode: CleanupMode) -> String {
+    match mode {
+        CleanupMode::Off => "cleanup:off".to_string(),
+        CleanupMode::PunctuationOnly => "cleanup:punctuation_only".to_string(),
+        CleanupMode::FullCleanup => "cleanup:full_cleanup".to_string(),
+    }
+}
+
+fn tray_menu_cleanup_from_id(id: &str) -> Option<CleanupMode> {
+    match id {
+        "cleanup:off" => Some(CleanupMode::Off),
+        "cleanup:punctuation_only" => Some(CleanupMode::PunctuationOnly),
+        "cleanup:full_cleanup" => Some(CleanupMode::FullCleanup),
+        _ => None,
+    }
+}
+
+fn tray_microphone_menu_item_checked(
+    selected_microphone_id: Option<&str>,
+    device_id: &str,
+    device_name: &str,
+    is_default: bool,
+    has_system_default_device: bool,
+) -> bool {
+    if let Some(selected_microphone_id) = selected_microphone_id {
+        return selected_microphone_id == device_id;
+    }
+
+    if has_system_default_device {
+        return is_system_default_microphone_parts(device_id, device_name);
+    }
+
+    is_default
+}
+
+fn is_system_default_microphone(device: &audio::AudioInputDevice) -> bool {
+    is_system_default_microphone_parts(&device.id, &device.name)
+}
+
+fn is_system_default_microphone_parts(device_id: &str, device_name: &str) -> bool {
+    device_id == "default" || device_name == "System Default"
+}
+
+fn tray_menu_microphone_id(device_id: &str) -> String {
+    format!("microphone:{device_id}")
+}
+
+fn tray_menu_microphone_from_id(id: &str) -> Option<String> {
+    id.strip_prefix("microphone:").map(str::to_string)
 }
 
 fn setup_window_should_open(
@@ -974,9 +1256,12 @@ mod tests {
         language_window_visible_for_floating_chrome, parse_floating_chrome_reason,
         recorder_native_window_size_for_mode, recorder_window_ignores_cursor_events,
         recorder_window_size_for_mode, recorder_window_top_for_bottom_margin,
-        setup_window_should_open, should_hide_window_on_close, FloatingChromeReason,
-        FloatingChromeReasonState, FloatingRecorderMode, FLOATING_BOTTOM_MARGIN,
-        HOVER_COLLAPSE_GRACE_MS,
+        setup_window_should_open, should_hide_window_on_close, tray_menu_asr_model_from_id,
+        tray_menu_asr_model_id, tray_menu_cleanup_from_id, tray_menu_cleanup_id,
+        tray_menu_language_from_id, tray_menu_language_id, tray_menu_microphone_from_id,
+        tray_menu_microphone_id, tray_microphone_menu_item_checked, CleanupMode,
+        FloatingChromeReason, FloatingChromeReasonState, FloatingRecorderMode, RecognitionLanguage,
+        FLOATING_BOTTOM_MARGIN, HOVER_COLLAPSE_GRACE_MS,
     };
 
     #[test]
@@ -989,6 +1274,37 @@ mod tests {
     #[test]
     fn setup_window_stays_hidden_when_required_setup_is_complete() {
         assert!(!setup_window_should_open(true, true, true));
+    }
+
+    #[test]
+    fn settings_dashboard_styles_use_custom_controls_and_window_fit() {
+        let styles =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/styles.css"))
+                .expect("desktop styles");
+
+        assert!(styles.contains("body[data-surface=\"settings\"]"));
+        assert!(styles.contains("overflow: hidden"));
+        assert!(styles.contains("appearance: none"));
+        assert!(styles.contains("background-image: url(\"data:image/svg+xml"));
+        assert!(!styles.contains(".square-glyph"));
+        assert!(styles.contains(".settings-icon"));
+        assert!(styles.contains("padding: 8px 8px 32px"));
+        assert!(styles.contains(".settings-panel button"));
+        assert!(styles.contains(".settings-primary-action"));
+    }
+
+    #[test]
+    fn settings_window_is_large_enough_for_compact_dashboard() {
+        let config: Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri config");
+        let windows = config["app"]["windows"].as_array().expect("windows config");
+        let main = windows
+            .iter()
+            .find(|window| window["label"] == "main")
+            .expect("main settings window");
+
+        assert!(main["width"].as_u64().unwrap() >= 920);
+        assert!(main["height"].as_u64().unwrap() >= 1080);
     }
 
     #[test]
@@ -1177,6 +1493,116 @@ mod tests {
         assert!(setup_menu_bar.contains("include_image!(\"./icons/tray-template.png\")"));
         assert!(setup_menu_bar.contains(".icon_as_template(true)"));
         assert!(!setup_menu_bar.contains("app.default_window_icon()"));
+    }
+
+    #[test]
+    fn tray_left_click_shows_nested_menu_instead_of_opening_settings() {
+        let production_source = include_str!("lib.rs");
+        let setup_menu_bar = production_source
+            .split("fn setup_menu_bar(")
+            .nth(1)
+            .and_then(|source| source.split("\nfn build_tray_menu").next())
+            .expect("setup_menu_bar function body");
+        let build_tray_menu = production_source
+            .split("fn build_tray_menu")
+            .nth(1)
+            .and_then(|source| source.split("\nfn handle_tray_menu_event").next())
+            .expect("build_tray_menu function body");
+
+        assert!(setup_menu_bar.contains(".menu(&menu)"));
+        assert!(setup_menu_bar.contains(".show_menu_on_left_click(true)"));
+        assert!(!setup_menu_bar.contains("on_tray_icon_event"));
+        assert!(!setup_menu_bar.contains("MouseButton::Left"));
+        assert!(build_tray_menu.contains("\"Language\""));
+        assert!(build_tray_menu.contains("\"Dictation model\""));
+        assert!(build_tray_menu.contains("\"Cleanup\""));
+        assert!(build_tray_menu.contains("\"Microphone\""));
+        assert!(build_tray_menu.contains("PredefinedMenuItem::separator"));
+        assert!(
+            build_tray_menu.find("\"Language\"").unwrap()
+                < build_tray_menu.find("\"Open Settings\"").unwrap()
+        );
+        assert!(
+            build_tray_menu.find("\"Dictation model\"").unwrap()
+                < build_tray_menu.find("\"Open Settings\"").unwrap()
+        );
+        assert!(
+            build_tray_menu.find("\"Cleanup\"").unwrap()
+                < build_tray_menu.find("\"Open Settings\"").unwrap()
+        );
+        assert!(
+            build_tray_menu.find("\"Microphone\"").unwrap()
+                < build_tray_menu.find("\"Open Settings\"").unwrap()
+        );
+    }
+
+    #[test]
+    fn tray_microphone_menu_checks_only_one_default_choice() {
+        assert!(tray_microphone_menu_item_checked(
+            None,
+            "default",
+            "System Default",
+            true,
+            true,
+        ));
+        assert!(!tray_microphone_menu_item_checked(
+            None,
+            "airpods-pro",
+            "Ryan’s AirPods Pro",
+            true,
+            true,
+        ));
+        assert!(tray_microphone_menu_item_checked(
+            Some("airpods-pro"),
+            "airpods-pro",
+            "Ryan’s AirPods Pro",
+            true,
+            true,
+        ));
+        assert!(!tray_microphone_menu_item_checked(
+            Some("airpods-pro"),
+            "default",
+            "System Default",
+            true,
+            true,
+        ));
+        assert!(tray_microphone_menu_item_checked(
+            None,
+            "only-device",
+            "Only Device",
+            true,
+            false,
+        ));
+    }
+
+    #[test]
+    fn tray_menu_ids_round_trip_for_quick_settings() {
+        assert_eq!(
+            tray_menu_language_from_id(&tray_menu_language_id(RecognitionLanguage::Auto)),
+            Some(RecognitionLanguage::Auto)
+        );
+        assert_eq!(
+            tray_menu_language_from_id(&tray_menu_language_id(RecognitionLanguage::En)),
+            Some(RecognitionLanguage::En)
+        );
+        assert_eq!(
+            tray_menu_language_from_id(&tray_menu_language_id(RecognitionLanguage::Zh)),
+            Some(RecognitionLanguage::Zh)
+        );
+        assert_eq!(
+            tray_menu_asr_model_from_id(&tray_menu_asr_model_id("large-v3-turbo")),
+            Some("large-v3-turbo".to_string())
+        );
+        assert_eq!(
+            tray_menu_cleanup_from_id(&tray_menu_cleanup_id(CleanupMode::FullCleanup)),
+            Some(CleanupMode::FullCleanup)
+        );
+        assert_eq!(
+            tray_menu_microphone_from_id(&tray_menu_microphone_id("device-1")),
+            Some("device-1".to_string())
+        );
+        assert_eq!(tray_menu_language_from_id("open_settings"), None);
+        assert_eq!(tray_menu_cleanup_from_id("quit"), None);
     }
 
     #[test]

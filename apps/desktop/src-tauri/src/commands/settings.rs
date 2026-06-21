@@ -445,11 +445,21 @@ pub fn local_model_settings(state: State<'_, AppState>) -> LocalModelSettings {
 #[tauri::command]
 pub async fn set_local_model_settings(
     app: AppHandle,
-    state: State<'_, AppState>,
-    inference_manager: State<'_, InferenceManager>,
-    asset_client: State<'_, AssetClient>,
+    _state: State<'_, AppState>,
+    _inference_manager: State<'_, InferenceManager>,
+    _asset_client: State<'_, AssetClient>,
     settings: LocalModelSettings,
 ) -> Result<LocalModelSettings, String> {
+    apply_local_model_settings(app, settings).await
+}
+
+pub async fn apply_local_model_settings(
+    app: AppHandle,
+    settings: LocalModelSettings,
+) -> Result<LocalModelSettings, String> {
+    let state = app.state::<AppState>();
+    let inference_manager = app.state::<InferenceManager>();
+    let asset_client = app.state::<AssetClient>();
     let previous = state.local_model_settings();
     let settings = settings.normalized();
     let language_only_change = is_language_only_settings_change(&previous, &settings);

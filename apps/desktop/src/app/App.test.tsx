@@ -306,7 +306,7 @@ describe("App", () => {
     render(<App />);
 
     await screen.findByDisplayValue("System Default");
-    await user.selectOptions(screen.getByLabelText("Microphone input"), "1");
+    await user.selectOptions(screen.getByLabelText("Source"), "1");
 
     expect(setMicrophoneDevice).toHaveBeenCalledWith("1");
   });
@@ -315,12 +315,12 @@ describe("App", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByLabelText("Recognition language")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Language")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Whisper binary path/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/Whisper model path/i)).not.toBeInTheDocument();
 
-    await user.selectOptions(screen.getByLabelText("Recognition language"), "zh");
-    await user.click(screen.getByRole("button", { name: "Save model settings" }));
+    await user.selectOptions(screen.getByLabelText("Language"), "zh");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(setLocalModelSettings).toHaveBeenCalledWith({
       asrModelId: "medium",
@@ -332,7 +332,7 @@ describe("App", () => {
   it("checks cleanup runtime status after cleanup-enabled settings load and renders status", async () => {
     render(<App />);
 
-    expect(await screen.findByText("Offline punctuation ready.")).toBeInTheDocument();
+    expect(await screen.findByText("Offline punctuation ready")).toBeInTheDocument();
     expect(cleanupRuntimeStatus).toHaveBeenCalledTimes(1);
   });
 
@@ -344,7 +344,7 @@ describe("App", () => {
     });
 
     render(<App />);
-    expect(await screen.findByLabelText("Recognition language")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Language")).toBeInTheDocument();
     await act(async () => {
       await Promise.resolve();
     });

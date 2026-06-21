@@ -369,11 +369,16 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - DoD: ready-state settings fit without routine scrolling; fallback-policy
     diagnostic copy is hidden; menu behavior/tests cover left-click nested menu.
 
-- **R4 CI and release workflow** ⬜
-  - Add PR CI and tag-based release workflow for signed/notarized macOS release
+- **R4 CI and release workflow** ✅
+  - Spec: `docs/superpowers/specs/2026-06-21-r4-ci-release-workflow-design.md`.
+  - Plan: `docs/superpowers/plans/2026-06-21-r4-ci-release-workflow.md`.
+  - Added PR CI workflow for the established shippability gate.
+  - Added tag/manual release workflow for signed/notarized Apple Silicon DMG
     artifacts.
-  - DoD: PR gates run in GitHub Actions; release docs describe required Apple
-    Developer credentials and release steps.
+  - Added static workflow validation and maintainer release docs.
+  - DoD: `pnpm check:release-workflows`, frontend tests, desktop tests/clippy,
+    build, and thin-bundle check pass locally; release workflow remains
+    secret-gated until Apple Developer credentials are configured in GitHub.
 
 - **R5 Public README and contributor docs** ⬜
   - Split end-user install/setup docs from developer/contributor workflow.

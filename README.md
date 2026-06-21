@@ -99,6 +99,10 @@ If macOS rejects the local certificate, run:
 pnpm desktop:trust-cert
 ```
 
+### Release process
+
+Maintainer release instructions, required GitHub secrets, and the signed/notarized DMG workflow are documented in [`docs/release.md`](docs/release.md).
+
 ### Test
 
 Run everything:

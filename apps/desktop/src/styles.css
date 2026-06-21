@@ -128,6 +128,55 @@ select {
   line-height: 1.15;
 }
 
+.recording-waveform-surface {
+  display: inline-grid;
+  place-items: center;
+  width: 176px;
+  height: 56px;
+  color: #ffffff;
+}
+
+.recording-waveform {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 148px;
+  height: 48px;
+}
+
+.recording-waveform-bar {
+  width: 5px;
+  height: var(--waveform-height);
+  border-radius: 999px;
+  background: #2ed39e;
+  box-shadow: 0 0 14px rgb(46 211 158 / 26%);
+  transform-origin: center;
+  animation: recording-waveform-pulse 740ms ease-in-out infinite;
+  animation-delay: calc(var(--waveform-index) * -64ms);
+}
+
+@keyframes recording-waveform-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.48);
+    opacity: 0.56;
+  }
+
+  45% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-waveform-bar {
+    animation: none;
+    opacity: 0.78;
+    transform: none;
+  }
+}
+
 button {
   min-height: 40px;
   border: 1px solid #aeb8c4;

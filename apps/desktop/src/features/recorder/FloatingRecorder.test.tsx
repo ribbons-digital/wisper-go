@@ -21,11 +21,13 @@ describe("FloatingRecorder", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders a concise recording prompt without controls while expanded", () => {
+  it("renders a standalone waveform without visible labels while actively recording", () => {
     render(<FloatingRecorder status="recording" expanded />);
 
-    expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Recording");
-    expect(screen.getByText("release to insert")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Recorder" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Recording waveform")).toBeInTheDocument();
+    expect(screen.queryByText("Recording")).not.toBeInTheDocument();
+    expect(screen.queryByText("release to insert")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -37,10 +39,11 @@ describe("FloatingRecorder", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
-  it("renders processing without exposing controls while expanded", () => {
-    render(<FloatingRecorder status="idle" busy expanded />);
+  it("renders processing as the pill instead of the waveform while expanded", () => {
+    render(<FloatingRecorder status="recording" busy expanded />);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Processing");
+    expect(screen.queryByLabelText("Recording waveform")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

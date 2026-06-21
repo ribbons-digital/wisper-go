@@ -5,6 +5,7 @@ apps/*/dist/
 apps/*/node_modules/
 apps/*/src-tauri/gen/
 .DS_Store
+.superpowers/
 apps/desktop/src-tauri/resources/bin/macos-aarch64/*
 apps/desktop/src-tauri/resources/bin/macos-x86_64/*
 apps/desktop/src-tauri/resources/models/asr/*

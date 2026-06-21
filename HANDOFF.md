@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-20 (updated during R2 icon refresh)
-**Next session focus:** Finish verifying R2 icon refresh, open PR, wait for merge, then consider R3 recording waveform UI before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-20 (updated during R3 recording waveform UI)
+**Next session focus:** Finish verifying R3 recording waveform UI, open PR, wait for merge, then consider R4 CI/release workflow before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -62,7 +62,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 R2 implementation | — |
+| Release readiness and UI polish | 🟡 R3 implementation | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -122,13 +122,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: R2 icon refresh
+## Current slice: R3 recording waveform UI
 
-**Issue:** The old shared app/tray icon had poor contrast and was too small in the macOS menu bar, especially across light/dark system appearances.
+**Issue:** The recording state should feel polished and immediate without showing a text-heavy pill while the shortcut is held.
 
-**Implementation status:** In progress on branch `r2-icon-refresh-dark-light`. Added a high-contrast full-color app/Dock icon, a separate `tray-template.png` menu-bar icon, and wired the tray to use macOS template rendering with `icon_as_template(true)` so the system tints it for light and dark menu bars. Added tests for separate tray template wiring and asset presence.
+**Implementation status:** In progress on branch `r3-recording-waveform-ui`. User approved a standalone waveform flow: holding the shortcut hides the pill and shows a waveform-only component with no visible labels; releasing hides the waveform and returns to the pill for processing/ready states. Added R3 spec and implementation plan, component/app tests, CSS waveform animation, and reduced-motion handling.
 
-**Next step:** Finish build/manual visual smoke, open PR, and wait for user merge. Recommended next slice after merge is R3 recording waveform UI because it is the next visible release-polish item in the core dictation flow.
+**Next step:** Finish full verification, run a manual visual smoke, open PR, and wait for user merge. Recommended next slice after merge is R4 CI and release workflow because release-polish UI slices R1-R3 are complete.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -171,4 +171,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, and R1 setup readiness is merged via PR #22. R2 icon refresh is in progress on `r2-icon-refresh-dark-light` with separate app and tray icons implemented. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, and R2 icon refresh is merged via PR #23. R3 recording waveform UI is in progress on `r3-recording-waveform-ui`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

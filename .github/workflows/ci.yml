@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test and lint
+    runs-on: macos-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+
+      - name: Install native build prerequisites
+        run: brew install cmake
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cargo build workspace
+        run: |
+          source scripts/macos-deployment-env.sh
+          cargo build --workspace
+
+      - name: Cargo test workspace
+        run: |
+          source scripts/macos-deployment-env.sh
+          cargo test --workspace
+
+      - name: Clippy core
+        run: |
+          source scripts/macos-deployment-env.sh
+          cargo clippy -p wispergo-core --all-targets -- -D warnings
+
+      - name: Clippy core with llama-cpp
+        run: |
+          source scripts/macos-deployment-env.sh
+          cargo clippy -p wispergo-core --all-targets --features llama-cpp -- -D warnings
+
+      - name: Clippy desktop
+        run: |
+          source scripts/macos-deployment-env.sh
+          cargo clippy -p wispergo-desktop --all-targets -- -D warnings
+
+      - name: Frontend tests
+        run: pnpm test:ts

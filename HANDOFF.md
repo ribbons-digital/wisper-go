@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-21 (updated during R3.5 settings and menu polish)
-**Next session focus:** Finish verifying R3.5 settings/menu polish, open PR, wait for merge, then consider R4 CI/release workflow before public release. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-21 (updated during R4 CI/release workflow implementation)
+**Next session focus:** Open/review the R4 CI/release workflow PR, wait for merge, then sync `main` and clean the branch. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -62,7 +62,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 R3.5 implementation | — |
+| Release readiness and UI polish | 🟡 R4 PR pending | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -122,13 +122,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: R3.5 settings and menu polish
+## Current slice: R4 CI and release workflow
 
-**Issue:** Settings still felt like an engineering test app: generic controls, visible fallback-policy diagnostic copy, and routine scrolling. The menu bar icon also opened Settings on left click while the menu lived behind right click.
+**Issue:** Wispergo is close to public-release shape, but the repo did not yet have PR CI, tag-based signed/notarized macOS DMG release automation, or maintainer release instructions.
 
-**Implementation status:** In progress on branch `r35-settings-menu-polish`. User approved Option A compact status dashboard for Settings and a left-click native menu with nested Language, Dictation model, Cleanup, and Microphone choices above Open Settings/Quit. Implementation reshapes Settings around existing callbacks, hides fallback-policy copy, uses polished grouped controls, and changes tray behavior to `show_menu_on_left_click(true)` with quick-setting submenu actions.
+**Implementation status:** Implemented on branch `r4-ci-release-workflow`. Added `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `scripts/desktop-release-build.sh`, `scripts/check-github-workflows.sh`, `docs/release.md`, README release pointer, and R4 spec/plan docs. The release workflow creates draft DMG releases and fails closed unless Apple Developer ID/App Store Connect secrets are configured.
 
-**Next step:** Finish full verification, launch the built app for a visual/menu smoke, open PR, and wait for user merge. Recommended next slice after merge is R4 CI and release workflow.
+**Next step:** Open PR and wait for user merge. Residual risk: the notarized release workflow cannot be end-to-end proven locally without Apple Developer Program credentials and repository secrets.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -171,4 +171,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, and R3 recording waveform UI is merged via PR #24. R3.5 settings/menu polish is in progress on `r35-settings-menu-polish`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, and R3.5 settings/menu polish is merged via PR #25. R4 CI/release workflow is implemented on `r4-ci-release-workflow` and awaiting PR/merge. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

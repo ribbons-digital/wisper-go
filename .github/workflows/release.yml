@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: Build signed macOS DMG
+    runs-on: macos-latest
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate tag and required secrets
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          case "$RELEASE_TAG" in
+            v*.*.*) ;;
+            *) echo "Release tag must look like v0.1.0: $RELEASE_TAG" >&2; exit 1 ;;
+          esac
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_PRIVATE_KEY; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Missing required secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.0.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+
+      - name: Install native build prerequisites
+        run: brew install cmake
+
+      - name: Install frontend dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Import Developer ID certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/wispergo-release.keychain-db"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          CERT_ID=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Developer ID Application" | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [[ -z "$CERT_ID" ]]; then
+            echo "No Developer ID Application identity found in imported certificate" >&2
+            exit 1
+          fi
+          echo "APPLE_SIGNING_IDENTITY=$CERT_ID" >> "$GITHUB_ENV"
+          echo "WISPERGO_CODESIGN_KEYCHAIN=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Configure App Store Connect API key
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PRIVATE_KEY: ${{ secrets.APPLE_API_KEY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          KEY_DIR="$RUNNER_TEMP/appstoreconnect/private_keys"
+          KEY_PATH="$KEY_DIR/AuthKey_${APPLE_API_KEY}.p8"
+          mkdir -p "$KEY_DIR"
+          printf '%s' "$APPLE_API_KEY_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "APPLE_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Validate workflow configuration
+        run: pnpm check:release-workflows
+
+      - name: Build signed and notarized DMG
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: ./scripts/desktop-release-build.sh
+
+      - name: Upload draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Wispergo ${{ env.RELEASE_TAG }}
+          draft: true
+          prerelease: false
+          files: |
+            target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          body: |
+            ## Wispergo ${{ env.RELEASE_TAG }}
+
+            Download the DMG, open it, and move Wispergo to Applications.
+            On first launch, Wispergo downloads required local model Assets.

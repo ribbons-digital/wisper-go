@@ -78,7 +78,7 @@ pub fn run() {
             setup_global_shortcut(app.handle())?;
             setup_menu_bar(app)?;
             show_settings_if_setup_required(app.handle());
-            apply_floating_chrome_windows(app.handle(), false, false)?;
+            apply_floating_chrome_windows(app.handle(), false, false, false)?;
             configure_recorder_window_for_hover_tracking(app.handle());
             configure_language_window_for_hover_tracking(app.handle());
             install_recorder_inactive_hover_monitor(app.handle());
@@ -623,8 +623,10 @@ fn parse_floating_chrome_reason(reason: &str) -> Result<FloatingChromeReason, St
     }
 }
 
-fn floating_chrome_window_state(state: &FloatingChromeReasonState) -> (bool, bool) {
-    (floating_chrome_expanded(state), state.language_menu)
+fn floating_chrome_window_state(state: &FloatingChromeReasonState) -> (bool, bool, bool) {
+    let expanded = floating_chrome_expanded(state);
+    let language_visible = language_window_visible_for_floating_chrome(expanded, state.recording);
+    (expanded, state.language_menu, language_visible)
 }
 
 fn is_hover_reason(reason: FloatingChromeReason) -> bool {
@@ -671,13 +673,13 @@ fn hover_clear_generation_matches(
 }
 
 fn current_floating_chrome_expanded(state: &FloatingChromeState) -> Result<bool, String> {
-    let (expanded, _) = current_floating_chrome_window_state(state)?;
+    let (expanded, _, _) = current_floating_chrome_window_state(state)?;
     Ok(expanded)
 }
 
 fn current_floating_chrome_window_state(
     state: &FloatingChromeState,
-) -> Result<(bool, bool), String> {
+) -> Result<(bool, bool, bool), String> {
     let reasons = state
         .reasons
         .lock()
@@ -729,7 +731,7 @@ fn set_floating_chrome_reason_active_immediate(
     reason: FloatingChromeReason,
     active: bool,
 ) -> Result<bool, String> {
-    let (expanded, language_menu_open) = {
+    let (expanded, language_menu_open, language_visible) = {
         let mut reasons = state
             .reasons
             .lock()
@@ -738,15 +740,15 @@ fn set_floating_chrome_reason_active_immediate(
         floating_chrome_window_state(&reasons)
     };
 
-    apply_floating_chrome_windows(app, expanded, language_menu_open)
+    apply_floating_chrome_windows(app, expanded, language_menu_open, language_visible)
         .map_err(|err| err.to_string())?;
     app.emit("wispergo://floating-chrome-expanded-changed", expanded)
         .map_err(|err| err.to_string())?;
     Ok(expanded)
 }
 
-fn language_window_visible_for_floating_chrome(expanded: bool) -> bool {
-    expanded
+fn language_window_visible_for_floating_chrome(expanded: bool, recording: bool) -> bool {
+    expanded && !recording
 }
 
 fn recorder_window_size_for_mode(mode: FloatingRecorderMode) -> (f64, f64) {
@@ -873,6 +875,7 @@ fn apply_floating_chrome_windows(
     app: &tauri::AppHandle,
     expanded: bool,
     language_menu_open: bool,
+    language_visible: bool,
 ) -> tauri::Result<()> {
     let recorder_mode = if expanded {
         FloatingRecorderMode::Expanded
@@ -881,7 +884,6 @@ fn apply_floating_chrome_windows(
     };
     position_recorder_window(app, recorder_mode)?;
 
-    let language_visible = language_window_visible_for_floating_chrome(expanded);
     if language_visible {
         position_language_window(app, language_menu_open, recorder_mode)?;
         if let Some(window) = app.get_webview_window("language") {
@@ -1089,15 +1091,30 @@ mod tests {
     }
 
     #[test]
+    fn floating_chrome_window_state_hides_language_surface_while_recording() {
+        let mut state = FloatingChromeReasonState::default();
+        state.set(FloatingChromeReason::LanguageHover, true);
+        state.set(FloatingChromeReason::LanguageMenu, true);
+        state.set(FloatingChromeReason::Recording, true);
+
+        assert_eq!(floating_chrome_window_state(&state), (true, true, false));
+        assert!(!language_window_visible_for_floating_chrome(true, true));
+
+        state.set(FloatingChromeReason::Recording, false);
+        assert_eq!(floating_chrome_window_state(&state), (true, true, true));
+        assert!(language_window_visible_for_floating_chrome(true, false));
+    }
+
+    #[test]
     fn floating_chrome_window_state_preserves_language_menu_open_reason() {
         let mut state = FloatingChromeReasonState::default();
         state.set(FloatingChromeReason::LanguageMenu, true);
         state.set(FloatingChromeReason::Processing, true);
 
-        assert_eq!(floating_chrome_window_state(&state), (true, true));
+        assert_eq!(floating_chrome_window_state(&state), (true, true, true));
 
         state.set(FloatingChromeReason::LanguageMenu, false);
-        assert_eq!(floating_chrome_window_state(&state), (true, false));
+        assert_eq!(floating_chrome_window_state(&state), (true, false, true));
     }
 
     #[test]
@@ -1212,8 +1229,9 @@ mod tests {
         assert!(floating_chrome_update
             .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
         assert!(floating_chrome_update.contains("if expanded"));
-        assert!(floating_chrome_update
-            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+        assert!(floating_chrome_update.contains(
+            "apply_floating_chrome_windows(app, expanded, language_menu_open, language_visible)"
+        ));
     }
 
     #[test]
@@ -1236,8 +1254,9 @@ mod tests {
 
         assert!(!production_source.contains("FLOATING_COLLAPSE_APPLY_DELAY_MS"));
         assert!(!production_source.contains("apply_floating_chrome_windows_after_collapse_delay"));
-        assert!(floating_chrome_update
-            .contains("apply_floating_chrome_windows(app, expanded, language_menu_open)"));
+        assert!(floating_chrome_update.contains(
+            "apply_floating_chrome_windows(app, expanded, language_menu_open, language_visible)"
+        ));
         assert!(floating_chrome_update
             .contains("app.emit(\"wispergo://floating-chrome-expanded-changed\", expanded)"));
     }
@@ -1310,8 +1329,9 @@ mod tests {
 
     #[test]
     fn native_floating_chrome_hides_language_when_collapsed() {
-        assert!(!language_window_visible_for_floating_chrome(false));
-        assert!(language_window_visible_for_floating_chrome(true));
+        assert!(!language_window_visible_for_floating_chrome(false, false));
+        assert!(language_window_visible_for_floating_chrome(true, false));
+        assert!(!language_window_visible_for_floating_chrome(true, true));
 
         let source = fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
             .expect("lib source");
@@ -1321,7 +1341,7 @@ mod tests {
             .expect("production lib source before tests");
 
         assert!(production_source
-            .contains("apply_floating_chrome_windows(app.handle(), false, false)?"));
+            .contains("apply_floating_chrome_windows(app.handle(), false, false, false)?"));
         assert!(production_source.contains("window.hide()?;"));
     }
 
@@ -1675,6 +1695,34 @@ mod tests {
         assert!(floating_recorder_styles.contains("box-shadow: none;"));
         assert!(floating_recorder_styles.contains("transition:"));
         assert!(!floating_recorder_styles.contains("box-shadow: 0"));
+    }
+
+    #[test]
+    fn recorder_waveform_styles_are_standalone_and_reduced_motion_safe() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let styles =
+            fs::read_to_string(manifest_dir.join("../src/styles.css")).expect("frontend styles");
+
+        let waveform_surface_styles = styles
+            .split(".recording-waveform-surface {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recording waveform surface styles exist");
+        let waveform_bar_styles = styles
+            .split(".recording-waveform-bar {")
+            .nth(1)
+            .and_then(|styles| styles.split('}').next())
+            .expect("recording waveform bar styles exist");
+        let reduced_motion_styles = styles
+            .split("@media (prefers-reduced-motion: reduce)")
+            .nth(1)
+            .expect("reduced motion media query exists");
+
+        assert!(waveform_surface_styles.contains("display: inline-grid;"));
+        assert!(waveform_surface_styles.contains("place-items: center;"));
+        assert!(waveform_bar_styles.contains("animation: recording-waveform-pulse"));
+        assert!(reduced_motion_styles.contains(".recording-waveform-bar"));
+        assert!(reduced_motion_styles.contains("animation: none;"));
     }
 
     #[test]

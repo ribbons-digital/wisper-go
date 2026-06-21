@@ -351,12 +351,15 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     menu-bar/tray icon uses separate `tray-template.png` wired with macOS
     template rendering for light/dark appearances.
 
-- **R3 Recording waveform UI** ⬜
+- **R3 Recording waveform UI** ✅
   - Replace the text-heavy recording pill with a compact waveform while holding
     the shortcut; keep processing and idle states distinct; respect reduced
     motion.
   - DoD: frontend tests cover state rendering; manual hold-to-dictate smoke
     verifies recording and processing visuals.
+  - Implementation: active recording now renders a standalone waveform-only
+    surface with no visible labels; idle/setup/processing keep the existing pill;
+    reduced-motion disables waveform animation.
 
 - **R4 CI and release workflow** ⬜
   - Add PR CI and tag-based release workflow for signed/notarized macOS release

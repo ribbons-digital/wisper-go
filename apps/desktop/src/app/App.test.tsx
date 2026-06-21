@@ -143,12 +143,36 @@ describe("App", () => {
 
     await emitRecordShortcut("Pressed");
     expect(startRecording).toHaveBeenCalledWith("press_and_hold");
-    expect(await screen.findByText("Recording")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recording waveform")).toBeInTheDocument();
 
     await emitRecordShortcut("Released");
     expect(stopRecording).toHaveBeenCalledWith("global_shortcut");
     expect(await screen.findByText("Ready")).toBeInTheDocument();
     expect(screen.queryByText("Inserted: hello from voice")).not.toBeInTheDocument();
+  });
+
+  it("shows the processing pill immediately after shortcut release", async () => {
+    const stop = deferred<Awaited<ReturnType<typeof stopRecording>>>();
+    vi.mocked(stopRecording).mockReturnValueOnce(stop.promise);
+    window.history.pushState({}, "", "/?surface=recorder");
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+
+    await emitRecordShortcut("Pressed");
+    expect(await screen.findByLabelText("Recording waveform")).toBeInTheDocument();
+
+    await emitRecordShortcut("Released");
+
+    expect(screen.queryByLabelText("Recording waveform")).not.toBeInTheDocument();
+    expect(screen.getByText("Processing")).toBeInTheDocument();
+
+    await act(async () => {
+      stop.resolve({
+        result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
+        insertion: "inserted",
+      });
+      await stop.promise;
+    });
   });
 
   it("shows setup needed when recording cannot start before setup is ready", async () => {
@@ -221,7 +245,7 @@ describe("App", () => {
     render(<App />);
     await emitFloatingChromeExpanded(true);
     await emitRecordShortcut("Pressed");
-    expect(await screen.findByText("Recording")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recording waveform")).toBeInTheDocument();
 
     vi.useFakeTimers();
     await act(async () => {
@@ -257,7 +281,7 @@ describe("App", () => {
     render(<App />);
     await emitFloatingChromeExpanded(true);
     await emitRecordShortcut("Pressed");
-    expect(await screen.findByText("Recording")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recording waveform")).toBeInTheDocument();
 
     vi.useFakeTimers();
     await act(async () => {
@@ -497,7 +521,7 @@ describe("App", () => {
     await emitFloatingChromeExpanded(true);
 
     await emitRecordShortcut("Pressed");
-    expect(await screen.findByText("Recording")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Recording waveform")).toBeInTheDocument();
 
     await emitRecordShortcut("Released");
 

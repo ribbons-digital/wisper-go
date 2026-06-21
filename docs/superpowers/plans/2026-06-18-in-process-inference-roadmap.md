@@ -361,6 +361,14 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     surface with no visible labels; idle/setup/processing keep the existing pill;
     reduced-motion disables waveform animation.
 
+- **R3.5 Settings and menu polish** ✅
+  - Reshape Settings into a compact product dashboard and replace engineering
+    copy with user-facing release polish.
+  - Change the menu bar icon so left-click opens a nested native menu with quick
+    Language, Dictation model, Cleanup, and Microphone choices above Open Settings.
+  - DoD: ready-state settings fit without routine scrolling; fallback-policy
+    diagnostic copy is hidden; menu behavior/tests cover left-click nested menu.
+
 - **R4 CI and release workflow** ⬜
   - Add PR CI and tag-based release workflow for signed/notarized macOS release
     artifacts.

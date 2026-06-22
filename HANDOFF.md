@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-21 (updated during R4 CI/release workflow implementation)
-**Next session focus:** Open/review the R4 CI/release workflow PR, wait for merge, then sync `main` and clean the branch. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-22 (updated during paste-target hotfix)
+**Next session focus:** Review/merge the paste-target hotfix PR, then sync `main` and clean the branch. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -23,6 +23,10 @@
 - **Compact ZH label follow-up is complete and merged** (PR #20): the floating badge is back to `ZH` while expanded UI/help copy remains Chinese / Mixed.
 - **Release readiness design is complete and merged** (PR #21): added `PRODUCT.md`, release-readiness spec, and release-readiness roadmap track.
 - **R1 first-run setup readiness is complete and merged** (PR #22): settings shows a setup checklist, setup auto-opens when readiness is incomplete, and dictation start reports setup-needed when microphone permission or required models are missing.
+- **R2 icon refresh is complete and merged** (PR #23): refreshed app/tray icons and dark/light-safe menu bar behavior.
+- **R3 recording waveform UI is complete and merged** (PR #24): active recording uses waveform-only feedback while ready/setup/processing keep the pill state.
+- **R3.5 settings and menu polish is complete and merged** (PR #25): polished Settings into the native calm dashboard and added nested tray quick-setting menus.
+- **R4 CI and release workflow is complete and merged** (PR #26): PR CI, release workflow, release build wrapper, workflow validation, and release docs are in `main`. Apple Developer credentials are still required before the first notarized public DMG.
 
 ## The work, in one paragraph
 
@@ -62,7 +66,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | 6 Retire bundled path + Intel + README | ✅ | PR #18 |
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
-| Release readiness and UI polish | 🟡 R4 PR pending | — |
+| Release readiness and UI polish | ✅ through R4 | PRs #21-#26 |
+| Paste-target hotfix | 🟡 PR pending | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -122,13 +127,15 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: R4 CI and release workflow
+## Current slice: paste-target hotfix
 
-**Issue:** Wispergo is close to public-release shape, but the repo did not yet have PR CI, tag-based signed/notarized macOS DMG release automation, or maintainer release instructions.
+**Issue:** Recognition works and clipboard is populated, but auto-paste fails in many real targets such as webpage textareas, terminals, and desktop chat prompts.
 
-**Implementation status:** Implemented on branch `r4-ci-release-workflow`. Added `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `scripts/desktop-release-build.sh`, `scripts/check-github-workflows.sh`, `docs/release.md`, README release pointer, and R4 spec/plan docs. The release workflow creates draft DMG releases and fails closed unless Apple Developer ID/App Store Connect secrets are configured.
+**Root cause:** insertion diagnostics showed failed cases had `clipboard: success`, `paste: not_attempted`, and `finalResult: no_editable_target`. macOS Accessibility sometimes reports the focused element as `AXWindow` or unavailable for apps that still accept Cmd+V, and Wispergo treated `NoEditableTarget` as a hard stop instead of attempting paste.
 
-**Next step:** Open PR and wait for user merge. Residual risk: the notarized release workflow cannot be end-to-end proven locally without Apple Developer Program credentials and repository secrets.
+**Implementation status:** Implemented on branch `fix-paste-targets`. `NoEditableTarget` now preserves secure-field protection but attempts best-effort clipboard paste and records success/failure diagnostics. Added regression tests for both best-effort success and failed-paste diagnostics. Reviewed with `claude -p --model claude-opus-4-8`; Opus agreed the fix is ready and noted the accepted caveat that `Inserted` means the paste keystroke was dispatched, not independently proven in the target app.
+
+**Next step:** Open PR and wait for user merge. After merge, sync `main`, delete `fix-paste-targets`, and have the user smoke-test webpage textarea, Terminal, and chat prompt targets.
 
 ## Key gotchas learned this run (save yourself the time)
 

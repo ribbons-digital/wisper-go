@@ -141,7 +141,16 @@ pub fn insert_with_target_detection_detailed<
         }
         FocusedTextTarget::NoEditableTarget => {
             set_clipboard_with_diagnostics(clipboard, text, &mut diagnostics)?;
-            InsertionResult::NoEditableTarget
+            match paste.paste() {
+                Ok(()) => {
+                    diagnostics.paste = InsertionStepStatus::Success;
+                    InsertionResult::Inserted
+                }
+                Err(message) => {
+                    diagnostics.paste = InsertionStepStatus::Failed { message };
+                    InsertionResult::NoEditableTarget
+                }
+            }
         }
         FocusedTextTarget::Editable { direct_insert } => {
             set_clipboard_with_diagnostics(clipboard, text, &mut diagnostics)?;
@@ -752,18 +761,40 @@ mod tests {
     }
 
     #[test]
-    fn non_editable_target_copies_without_pasting() {
+    fn non_editable_target_attempts_best_effort_paste() {
         let clipboard = RecordingClipboard::new();
         let paste = RecordingPaste::new(Ok(()));
         let target = FakeTextTarget::new(FocusedTextTarget::NoEditableTarget);
 
-        let result =
-            insert_with_target_detection(&clipboard, &paste, &target, "hello").expect("insert");
+        let outcome = insert_with_target_detection_detailed(&clipboard, &paste, &target, "hello")
+            .expect("insert");
 
-        assert_eq!(result, InsertionResult::NoEditableTarget);
+        assert_eq!(outcome.result, InsertionResult::Inserted);
         assert_eq!(target.direct_calls.get(), 0);
         assert_eq!(clipboard.calls.get(), 1);
-        assert_eq!(paste.calls.get(), 0);
+        assert_eq!(paste.calls.get(), 1);
+        assert_eq!(outcome.diagnostics.clipboard, InsertionStepStatus::Success);
+        assert_eq!(outcome.diagnostics.paste, InsertionStepStatus::Success);
+    }
+
+    #[test]
+    fn non_editable_target_reports_no_editable_when_best_effort_paste_fails() {
+        let clipboard = RecordingClipboard::new();
+        let paste = RecordingPaste::new(Err("paste rejected".to_string()));
+        let target = FakeTextTarget::new(FocusedTextTarget::NoEditableTarget);
+
+        let outcome = insert_with_target_detection_detailed(&clipboard, &paste, &target, "hello")
+            .expect("insert");
+
+        assert_eq!(outcome.result, InsertionResult::NoEditableTarget);
+        assert_eq!(clipboard.calls.get(), 1);
+        assert_eq!(paste.calls.get(), 1);
+        assert_eq!(
+            outcome.diagnostics.paste,
+            InsertionStepStatus::Failed {
+                message: "paste rejected".to_string()
+            }
+        );
     }
 
     #[test]

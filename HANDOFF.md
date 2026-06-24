@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-22 (updated during paste-target hotfix)
-**Next session focus:** Review/merge the paste-target hotfix PR, then sync `main` and clean the branch. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-24 (updated during R5 shortcut customization planning)
+**Next session focus:** Review the R5 shortcut customization spec, then decide whether to proceed into the R5.1 key-combination customization implementation plan. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -27,10 +27,12 @@
 - **R3 recording waveform UI is complete and merged** (PR #24): active recording uses waveform-only feedback while ready/setup/processing keep the pill state.
 - **R3.5 settings and menu polish is complete and merged** (PR #25): polished Settings into the native calm dashboard and added nested tray quick-setting menus.
 - **R4 CI and release workflow is complete and merged** (PR #26): PR CI, release workflow, release build wrapper, workflow validation, and release docs are in `main`. Apple Developer credentials are still required before the first notarized public DMG.
+- **Paste-target hotfix is complete and merged** (PR #27): AX-opaque targets such as web textareas, terminals, and desktop chat prompts now get best-effort Cmd+V after clipboard copy instead of stopping at `NoEditableTarget`.
+- **R5 shortcut customization is in planning** on `r5-shortcut-customization-spec`: the draft spec covers both key-combination customization and single modifier-key hold, with separate implementation PRs planned.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, the language UX follow-up, and the compact ZH label follow-up are merged. The next track is release readiness and UI polish for public GitHub Releases.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, language UX follow-ups, release-readiness R0-R4, and the paste-target hotfix are merged. R5 shortcut customization is the active planning slice.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -51,6 +53,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **PRODUCT.md** — strategic product context for UI/release polish.
 - **Release-readiness spec:** `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
 - **R1 implementation plan:** `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
+- **R5 shortcut customization spec:** `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md` — draft for user review; covers combo customization and single modifier-key hold as separate PRs.
 - **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
@@ -67,7 +70,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | Language UX follow-up | ✅ | PR #19 |
 | Compact ZH label follow-up | ✅ | PR #20 |
 | Release readiness and UI polish | ✅ through R4 | PRs #21-#26 |
-| Paste-target hotfix | 🟡 PR pending | — |
+| Paste-target hotfix | ✅ | PR #27 |
+| Shortcut customization | 🟡 R5 planning | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -127,15 +131,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: paste-target hotfix
+## Current slice: R5 shortcut customization
 
-**Issue:** Recognition works and clipboard is populated, but auto-paste fails in many real targets such as webpage textareas, terminals, and desktop chat prompts.
+**Issue:** Wispergo's dictation trigger is currently hardcoded to `Command + Shift + Space`. Users need conflict-safe customization and a more dictation-native single-key hold option. The user's keyboard has left/right Command but no Right Option, so Right Command must be a supported modifier-hold option.
 
-**Root cause:** insertion diagnostics showed failed cases had `clipboard: success`, `paste: not_attempted`, and `finalResult: no_editable_target`. macOS Accessibility sometimes reports the focused element as `AXWindow` or unavailable for apps that still accept Cmd+V, and Wispergo treated `NoEditableTarget` as a hard stop instead of attempting paste.
+**Planning status:** Draft spec created on branch `r5-shortcut-customization-spec`: `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md`. The spec covers both combo customization and single modifier-key hold, but deliberately splits implementation into separate PRs: R5.1 for key-combination customization and R5.2 for single modifier hold. Reviewed direction with `claude -p --model claude-opus-4-8`; consensus was to preserve the default, implement combo customization first, then add listen-only modifier-hold monitoring with threshold/cancel-on-chord behavior.
 
-**Implementation status:** Implemented on branch `fix-paste-targets`. `NoEditableTarget` now preserves secure-field protection but attempts best-effort clipboard paste and records success/failure diagnostics. Added regression tests for both best-effort success and failed-paste diagnostics. Reviewed with `claude -p --model claude-opus-4-8`; Opus agreed the fix is ready and noted the accepted caveat that `Inserted` means the paste keystroke was dispatched, not independently proven in the target app.
-
-**Next step:** Open PR and wait for user merge. After merge, sync `main`, delete `fix-paste-targets`, and have the user smoke-test webpage textarea, Terminal, and chat prompt targets.
+**Next step:** User review/approval of the R5 spec. If approved, write the R5.1 implementation plan only; do not implement R5.2 in the same PR.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -178,4 +180,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, and R3.5 settings/menu polish is merged via PR #25. R4 CI/release workflow is implemented on `r4-ci-release-workflow` and awaiting PR/merge. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, R3.5 settings/menu polish is merged via PR #25, R4 CI/release workflow is merged via PR #26, and paste-target hotfix is merged via PR #27. R5 shortcut customization planning is in progress on `r5-shortcut-customization-spec`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

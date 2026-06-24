@@ -317,22 +317,25 @@ export function App() {
             setMicrophones([]);
           }
         });
+    const refreshMountedSelectedMicrophone = () =>
+      selectedMicrophoneId()
+        .then((deviceId) => {
+          if (mounted) {
+            setSelectedMic(deviceId);
+          }
+        })
+        .catch(() => {
+          if (mounted) {
+            setSelectedMic(null);
+          }
+        });
 
     void refreshMountedMicrophones();
+    void refreshMountedSelectedMicrophone();
     const microphoneRefresh = window.setInterval(() => {
       void refreshMountedMicrophones();
+      void refreshMountedSelectedMicrophone();
     }, MICROPHONE_REFRESH_MS);
-    void selectedMicrophoneId()
-      .then((deviceId) => {
-        if (mounted) {
-          setSelectedMic(deviceId);
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setSelectedMic(null);
-        }
-      });
     const refreshMountedMicrophoneStatus = () =>
       microphoneStatus()
         .then((nextStatus) => {
@@ -439,14 +442,26 @@ export function App() {
     });
   }
 
+  function refreshSelectedMicrophone() {
+    return selectedMicrophoneId()
+      .then((deviceId) => {
+        setSelectedMic(deviceId);
+      })
+      .catch(() => {
+        setSelectedMic(null);
+      });
+  }
+
   function refreshMicrophones() {
-    return listMicrophones()
+    const refreshDevices = listMicrophones()
       .then((devices) => {
         setMicrophones(devices);
       })
       .catch(() => {
         setMicrophones([]);
       });
+
+    return Promise.all([refreshDevices, refreshSelectedMicrophone()]);
   }
 
   function refreshAccessibility() {

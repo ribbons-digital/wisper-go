@@ -49,7 +49,7 @@ select {
 body[data-surface="settings"] .app-shell {
   width: 100%;
   min-height: 100vh;
-  padding: 8px 8px 32px;
+  padding: 8px;
   align-content: start;
 }
 
@@ -219,6 +219,7 @@ button:disabled {
 }
 
 .settings-panel {
+  height: calc(100vh - 16px);
   padding: 0;
   display: grid;
   grid-template-rows: auto 1fr;
@@ -229,14 +230,14 @@ button:disabled {
   align-items: start;
   justify-content: space-between;
   gap: 32px;
-  padding: 32px 44px 26px;
+  padding: 16px 44px 14px;
   background: #1d1c31;
   color: #f7f4ff;
 }
 
 .settings-hero-copy {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .settings-kicker {
@@ -250,7 +251,7 @@ button:disabled {
 
 .settings-hero h2 {
   margin: 0;
-  font-size: 1.74rem;
+  font-size: 1.56rem;
   line-height: 1.08;
   letter-spacing: -0.028em;
 }
@@ -333,8 +334,12 @@ button:disabled {
 }
 
 .settings-dashboard-grid {
+  min-height: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-areas:
+    "setup input"
+    "shortcut dictation";
   padding: 0;
 }
 
@@ -342,24 +347,30 @@ button:disabled {
   min-width: 0;
   display: grid;
   align-content: start;
-  gap: 22px;
-  padding: 30px 44px;
+  gap: 10px;
+  padding: 16px 44px;
   border: 0;
   border-top: 1px solid #d9d9d4;
   background: #fbfbfa;
 }
 
 .setup-card {
+  grid-area: setup;
   border-right: 1px solid #d9d9d4;
 }
 
+.input-card {
+  grid-area: input;
+}
+
 .model-settings {
-  grid-column: 1 / -1;
-  gap: 24px;
-  border-right: 0;
+  grid-area: dictation;
+  gap: 12px;
+  border-left: 0;
 }
 
 .shortcut-settings {
+  grid-area: shortcut;
   border-right: 1px solid #d9d9d4;
 }
 
@@ -370,28 +381,40 @@ button:disabled {
 }
 
 .settings-panel .shortcut-mode-toggle label {
-  min-height: 52px;
+  min-height: 38px;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 2px solid #bdbbb4;
   border-radius: 14px;
   background: #f6f5ef;
   color: #42423d;
+  font-size: 0.9rem;
+  line-height: 1.18;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.shortcut-mode-toggle input {
+.shortcut-mode-toggle span {
+  min-width: 0;
+}
+
+.shortcut-mode-toggle input[type="radio"] {
   min-height: auto;
-  width: auto;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
   padding: 0;
+  border: 0;
+  background: transparent;
   accent-color: #1d1c31;
 }
 
 .shortcut-current {
-  min-height: 64px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -416,30 +439,37 @@ button:disabled {
 }
 
 .settings-panel .shortcut-modifier-toggle {
-  min-height: 52px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 2px solid #bdbbb4;
   border-radius: 14px;
   background: #f6f5ef;
   color: #42423d;
+  font-size: 0.9rem;
+  line-height: 1.18;
   letter-spacing: 0;
   text-transform: none;
 }
 
-.shortcut-modifier-toggle input {
+.shortcut-modifier-toggle input[type="checkbox"] {
   min-height: auto;
-  width: auto;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
   padding: 0;
+  border: 0;
+  background: transparent;
   accent-color: #1d1c31;
 }
 
 .shortcut-combo-editor,
 .shortcut-hold-editor {
   display: grid;
-  gap: 14px;
+  gap: 8px;
 }
 
 button.is-recording-shortcut {
@@ -451,7 +481,7 @@ button.is-recording-shortcut {
 .shortcut-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 10px;
   align-items: center;
 }
 
@@ -490,14 +520,14 @@ button.is-recording-shortcut {
 
 .setup-checklist {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .setup-checklist li {
-  min-height: 56px;
+  min-height: 44px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
@@ -525,7 +555,7 @@ button.is-recording-shortcut {
 
 .settings-panel label {
   display: grid;
-  gap: 11px;
+  gap: 8px;
   color: #77746d;
   font-size: 0.86rem;
   font-weight: 850;
@@ -539,9 +569,9 @@ button.is-recording-shortcut {
   background: transparent;
 }
 
-.settings-panel input,
+.settings-panel input:not([type="checkbox"]):not([type="radio"]),
 .settings-panel select {
-  min-height: 56px;
+  min-height: 44px;
   width: 100%;
   border: 2px solid #bdbbb4;
   border-radius: 14px;
@@ -566,6 +596,7 @@ button.is-recording-shortcut {
   background-color: #fbfaf5;
 }
 
+.settings-panel input:not([type="checkbox"]):not([type="radio"]):focus,
 .settings-panel select:focus,
 .settings-panel button:focus-visible {
   border-color: #5f4ca0;
@@ -575,8 +606,8 @@ button.is-recording-shortcut {
 
 .dictation-fields {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 22px;
+  grid-template-columns: 1fr;
+  gap: 10px;
 }
 
 .settings-panel p {
@@ -606,7 +637,7 @@ button.is-recording-shortcut {
 }
 
 .settings-panel button {
-  min-height: 54px;
+  min-height: 42px;
   justify-content: center;
   border: 2px solid #bdbbb4;
   border-radius: 14px;
@@ -627,7 +658,7 @@ button.is-recording-shortcut {
 }
 
 .settings-primary-action {
-  min-height: 62px;
+  min-height: 44px;
   border-color: #1d1c31;
   background: #1d1c31;
   color: #ffffff;
@@ -643,9 +674,9 @@ button.is-recording-shortcut {
 .asset-download {
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 68px;
-  padding: 0 24px;
+  gap: 14px;
+  min-height: 54px;
+  padding: 0 18px;
   border: 2px solid #3a7a2c;
   border-radius: 14px;
   background: #e8f0dc;

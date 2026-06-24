@@ -1396,7 +1396,10 @@ mod tests {
         assert!(styles.contains("background-image: url(\"data:image/svg+xml"));
         assert!(!styles.contains(".square-glyph"));
         assert!(styles.contains(".settings-icon"));
-        assert!(styles.contains("padding: 8px 8px 32px"));
+        assert!(styles.contains("padding: 8px"));
+        assert!(styles.contains("height: calc(100vh - 16px)"));
+        assert!(styles.contains("grid-template-areas:"));
+        assert!(styles.contains("input:not([type=\"checkbox\"]):not([type=\"radio\"])"));
         assert!(styles.contains(".settings-panel button"));
         assert!(styles.contains(".settings-primary-action"));
     }

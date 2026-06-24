@@ -388,14 +388,14 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     - R5.1: key-combination customization with conflict-safe save/rollback ✅
       (`docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md`).
     - R5.2: single modifier-key hold-to-dictate, including Right Command for
-      keyboards without Right Option, has a reviewed implementation plan pending
-      approval/merge
+      keyboards without Right Option ✅
       (`docs/superpowers/plans/2026-06-24-r5-2-modifier-hold-shortcut.md`).
   - R5.1 DoD: Settings and recorder copy show the selected combo shortcut;
     failed combo registration keeps the previous working shortcut; default
     `Command + Shift + Space` behavior is preserved.
   - R5.2 DoD: modifier-hold mode avoids normal shortcut interference with
-    threshold/cancel-on-chord behavior.
+    threshold/cancel-on-chord behavior, emits the existing `Pressed` / `Released`
+    event contract, and includes watchdog release protection.
 
 - **R6 Public README and contributor docs** ⬜
   - Split end-user install/setup docs from developer/contributor workflow.

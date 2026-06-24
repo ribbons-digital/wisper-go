@@ -3,6 +3,7 @@ mod commands;
 mod inference;
 #[allow(dead_code)]
 mod insertion;
+mod modifier_hold;
 mod platform;
 mod shortcut;
 mod state;

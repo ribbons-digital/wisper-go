@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-24 (updated during R5.2 modifier-hold implementation)
-**Next session focus:** Open/review the R5.2 modifier-hold implementation PR, then wait for user merge. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-24 (updated after R5.2 modifier-hold merge)
+**Next session focus:** Decide whether to move to R6 public README/contributor docs or pause. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -29,11 +29,11 @@
 - **R4 CI and release workflow is complete and merged** (PR #26): PR CI, release workflow, release build wrapper, workflow validation, and release docs are in `main`. Apple Developer credentials are still required before the first notarized public DMG.
 - **Paste-target hotfix is complete and merged** (PR #27): AX-opaque targets such as web textareas, terminals, and desktop chat prompts now get best-effort Cmd+V after clipboard copy instead of stopping at `NoEditableTarget`.
 - **R5.1 shortcut combo customization is complete and merged** (PR #30): persisted combo settings default to `⌘ ⇧ Space`, Settings can record/select/save/reset key-combination shortcuts, the Tauri global shortcut registration is dynamic with rollback on conflict/failure, and Settings/recorder labels reflect the selected combo.
-- **R5.2 modifier-hold shortcut customization is implemented on branch `r5-2-modifier-hold-implementation`**: adds opt-in `modifier_hold` shortcut mode, physical modifier selection including Right Command, listen-only macOS event monitoring with threshold/cancel-on-chord/watchdog behavior, save-without-Accessibility semantics, force-start after permission grant, and Settings/recorder labels. R5.1 combo mode remains available and default.
+- **R5.2 modifier-hold shortcut customization is complete and merged** (PR #33): adds opt-in `modifier_hold` shortcut mode, physical modifier selection including Right Command, listen-only macOS event monitoring with threshold/cancel-on-chord/watchdog behavior, save-without-Accessibility semantics, force-start after permission grant, and Settings/recorder labels. R5.1 combo mode remains available and default.
 
 ## The work, in one paragraph
 
-Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, language UX follow-ups, release-readiness R0-R4, the paste-target hotfix, and R5.1 shortcut combo customization are merged. R5.2 modifier-hold is implemented on branch `r5-2-modifier-hold-implementation`; PR is pending.
+Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5 GB, `whisper-cli` + `llama-server` sidecars, dual-arch GGML dylibs) to a thin app with in-process GGML engines (`whisper-rs` + `llama-cpp-2`, statically linked, Metal, arm64-only) and a first-run asset downloader. The original "fully bundled, no downloads" spec (2026-05-01) was **superseded**; the reversal is recorded in ADR-0001. Phases 0-6, the macOS deployment-target build fix, language UX follow-ups, release-readiness R0-R4, the paste-target hotfix, and R5 shortcut customization (R5.1 combo + R5.2 modifier-hold) are merged.
 
 ## Authoritative artifacts (read these, don't re-derive)
 
@@ -56,7 +56,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **R1 implementation plan:** `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
 - **R5 shortcut customization spec:** `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md` — merged via PR #28; covers combo customization and single modifier-key hold as separate PRs.
 - **R5.1 shortcut combo plan:** `docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md` — implemented and merged via PR #30 for key-combination customization only.
-- **R5.2 modifier-hold plan:** `docs/superpowers/plans/2026-06-24-r5-2-modifier-hold-shortcut.md` — reviewed by Opus 4.8 with no blockers; implemented on branch `r5-2-modifier-hold-implementation`.
+- **R5.2 modifier-hold plan:** `docs/superpowers/plans/2026-06-24-r5-2-modifier-hold-shortcut.md` — implemented and merged via PR #33.
 - **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
@@ -74,7 +74,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | Compact ZH label follow-up | ✅ | PR #20 |
 | Release readiness and UI polish | ✅ through R4 | PRs #21-#26 |
 | Paste-target hotfix | ✅ | PR #27 |
-| Shortcut customization | 🟡 R5.1 merged; R5.2 PR pending | PR #30 |
+| Shortcut customization | ✅ R5.1 + R5.2 merged | PRs #30, #33 |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -134,13 +134,13 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Implementation status:** Merged in PR #15. Added `crates/wispergo-core/src/cleanup_safety.rs` with a deterministic punctuation safety gate; Punctuation-only output from both Ollama override and local `InferenceManager` cleanup is accepted only when it preserves transcript content with punctuation/capitalization-only changes; unsafe suggestions fall back to raw ASR. Added a safety-wrapped Qwen2.5-0.5B cleanup-punctuation default Asset to `models.manifest.json`; cleanup settings resolution now uses verified app-support cleanup Assets when the manifest is populated. Updated `docs/manual/offline-cleanup-eval.md` to record model suggestion, safety decision, final inserted output, safety notes, quality notes, and latency. Safety-gated eval passes safety for all fixture rows: unsafe Chinese/mixed suggestions fall back to raw ASR, while safe English/already-punctuated suggestions are accepted.
 
-## Current slice: R5.2 modifier-hold shortcut customization
+## Recently completed slice: R5.2 modifier-hold shortcut customization
 
 **Issue:** R5.1 made key-combination shortcuts configurable while preserving the default `Command + Shift + Space`. R5.2 adds an opt-in, dictation-native single modifier-key hold mode. The user's keyboard has left/right Command but no Right Option, so Right Command is supported. Fn and arbitrary single-letter/key hold remain out of scope.
 
-**Implementation status:** Implemented on branch `r5-2-modifier-hold-implementation`; PR pending. Default remains combo `⌘ ⇧ Space`; modifier hold is opt-in. The implementation adds `modifier_hold` shortcut mode, physical modifier selection including Right Command, listen-only macOS event monitoring with threshold/cancel-on-chord/watchdog behavior, save-without-Accessibility behavior, force-start after Accessibility grant, and Settings/recorder labels.
+**Implementation status:** Merged via PR #33. Default remains combo `⌘ ⇧ Space`; modifier hold is opt-in. The implementation adds `modifier_hold` shortcut mode, physical modifier selection including Right Command, listen-only macOS event monitoring with threshold/cancel-on-chord/watchdog behavior, save-without-Accessibility behavior, force-start after Accessibility grant, and Settings/recorder labels.
 
-**Next step:** Open PR and wait for user merge. After merge, sync `main`, delete branch, then decide whether to move to R6 docs or pause.
+**Next step:** Decide whether to move to R6 public README/contributor docs or pause.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -183,4 +183,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, R3.5 settings/menu polish is merged via PR #25, R4 CI/release workflow is merged via PR #26, paste-target hotfix is merged via PR #27, R5 umbrella shortcut customization spec is merged via PR #28, R5.1 shortcut combo plan is merged via PR #29, and R5.1 shortcut combo customization is merged via PR #30. R5.2 single modifier hold is not implemented. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, R3.5 settings/menu polish is merged via PR #25, R4 CI/release workflow is merged via PR #26, paste-target hotfix is merged via PR #27, R5 umbrella shortcut customization spec is merged via PR #28, R5.1 shortcut combo plan is merged via PR #29, R5.1 shortcut combo customization is merged via PR #30, and R5.2 modifier-hold is merged via PR #33. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

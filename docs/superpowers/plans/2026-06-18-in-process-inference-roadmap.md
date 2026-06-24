@@ -380,7 +380,7 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     build, and thin-bundle check pass locally; release workflow remains
     secret-gated until Apple Developer credentials are configured in GitHub.
 
-- **R5 Shortcut customization** 🟡
+- **R5 Shortcut customization** ✅
   - Spec: `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md`.
   - Add user-configurable dictation triggers while preserving the default
     `Command + Shift + Space` hold-to-dictate behavior.

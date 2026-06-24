@@ -648,8 +648,10 @@ impl ModifierHoldStateMachine {
 }
 
 pub trait ShortcutRegistry {
-    fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
-    fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
+    fn register_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
+    fn unregister_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
+    fn start_modifier_hold(&mut self, settings: &ModifierHoldSettings) -> Result<(), String>;
+    fn stop_modifier_hold(&mut self, settings: &ModifierHoldSettings) -> Result<(), String>;
 }
 
 pub fn apply_shortcut_settings<R: ShortcutRegistry>(
@@ -665,25 +667,45 @@ pub fn apply_shortcut_settings<R: ShortcutRegistry>(
     }
 
     if let Some(previous_settings) = previous.as_ref() {
-        registry.unregister(previous_settings)?;
+        deactivate_shortcut(registry, previous_settings)?;
     }
 
-    if let Err(register_error) = registry.register(&next) {
+    if let Err(activate_error) = activate_shortcut(registry, &next) {
         if let Some(previous_settings) = previous.as_ref() {
-            if let Err(rollback_error) = registry.register(previous_settings) {
+            if let Err(rollback_error) = activate_shortcut(registry, previous_settings) {
                 return Err(format!(
-                    "Shortcut could not be changed: {register_error}. The previous shortcut could not be restored: {rollback_error}"
+                    "Shortcut could not be changed: {activate_error}. The previous shortcut could not be restored: {rollback_error}"
                 ));
             }
             *active = Some(previous_settings.clone());
         } else {
             *active = None;
         }
-        return Err(format!("Shortcut could not be changed: {register_error}"));
+        return Err(format!("Shortcut could not be changed: {activate_error}"));
     }
 
     *active = Some(next.clone());
     Ok(next.to_frontend())
+}
+
+fn activate_shortcut<R: ShortcutRegistry>(
+    registry: &mut R,
+    settings: &ShortcutSettings,
+) -> Result<(), String> {
+    match settings.mode {
+        ShortcutMode::Combo => registry.register_combo(settings),
+        ShortcutMode::ModifierHold => registry.start_modifier_hold(&settings.modifier_hold),
+    }
+}
+
+fn deactivate_shortcut<R: ShortcutRegistry>(
+    registry: &mut R,
+    settings: &ShortcutSettings,
+) -> Result<(), String> {
+    match settings.mode {
+        ShortcutMode::Combo => registry.unregister_combo(settings),
+        ShortcutMode::ModifierHold => registry.stop_modifier_hold(&settings.modifier_hold),
+    }
 }
 
 #[cfg(test)]
@@ -1026,27 +1048,39 @@ mod tests {
 
     #[derive(Default)]
     struct FakeShortcutRegistry {
-        active: Option<ShortcutSettings>,
-        fail_next_register: Option<String>,
-        unregistered: Vec<ShortcutSettings>,
-        registered: Vec<ShortcutSettings>,
+        calls: Vec<String>,
+        fail_next_combo_register: Option<String>,
+        fail_next_modifier_hold_start: Option<String>,
     }
 
     impl ShortcutRegistry for FakeShortcutRegistry {
-        fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
-            if let Some(message) = self.fail_next_register.take() {
-                return Err(message);
+        fn register_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+            self.calls
+                .push(format!("register_combo:{}", settings.display_label()));
+            if let Some(error) = self.fail_next_combo_register.take() {
+                return Err(error);
             }
-            self.registered.push(settings.clone());
-            self.active = Some(settings.clone());
             Ok(())
         }
 
-        fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
-            self.unregistered.push(settings.clone());
-            if self.active.as_ref() == Some(settings) {
-                self.active = None;
+        fn unregister_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+            self.calls
+                .push(format!("unregister_combo:{}", settings.display_label()));
+            Ok(())
+        }
+
+        fn start_modifier_hold(&mut self, settings: &ModifierHoldSettings) -> Result<(), String> {
+            self.calls
+                .push(format!("start_modifier_hold:{}", settings.display_label()));
+            if let Some(error) = self.fail_next_modifier_hold_start.take() {
+                return Err(error);
             }
+            Ok(())
+        }
+
+        fn stop_modifier_hold(&mut self, settings: &ModifierHoldSettings) -> Result<(), String> {
+            self.calls
+                .push(format!("stop_modifier_hold:{}", settings.display_label()));
             Ok(())
         }
     }
@@ -1060,9 +1094,8 @@ mod tests {
         let view = apply_shortcut_settings(&mut registry, &mut active, settings.clone())
             .expect("apply shortcut");
 
-        assert_eq!(active, Some(settings.clone()));
-        assert_eq!(registry.registered, vec![settings]);
-        assert_eq!(registry.unregistered.len(), 0);
+        assert_eq!(active, Some(settings));
+        assert_eq!(registry.calls, vec!["register_combo:⌘ ⇧ Space".to_string()]);
         assert_eq!(view.display_label, "⌘ ⇧ Space");
     }
 
@@ -1082,18 +1115,20 @@ mod tests {
             },
             modifier_hold: ModifierHoldSettings::default(),
         };
-        let mut registry = FakeShortcutRegistry {
-            active: Some(previous.clone()),
-            ..FakeShortcutRegistry::default()
-        };
+        let mut registry = FakeShortcutRegistry::default();
         let mut active = Some(previous.clone());
 
         let view = apply_shortcut_settings(&mut registry, &mut active, next.clone())
             .expect("apply shortcut");
 
-        assert_eq!(active, Some(next.clone()));
-        assert_eq!(registry.unregistered, vec![previous]);
-        assert_eq!(registry.registered, vec![next]);
+        assert_eq!(active, Some(next));
+        assert_eq!(
+            registry.calls,
+            vec![
+                "unregister_combo:⌘ ⇧ Space".to_string(),
+                "register_combo:⌘ ⌥ K".to_string(),
+            ]
+        );
         assert_eq!(view.display_label, "⌘ ⌥ K");
     }
 
@@ -1114,8 +1149,7 @@ mod tests {
             modifier_hold: ModifierHoldSettings::default(),
         };
         let mut registry = FakeShortcutRegistry {
-            active: Some(previous.clone()),
-            fail_next_register: Some("shortcut is already registered".to_string()),
+            fail_next_combo_register: Some("shortcut is already registered".to_string()),
             ..FakeShortcutRegistry::default()
         };
         let mut active = Some(previous.clone());
@@ -1124,10 +1158,135 @@ mod tests {
             .expect_err("conflict should fail");
 
         assert!(error.contains("shortcut is already registered"));
-        assert_eq!(active, Some(previous.clone()));
-        assert_eq!(registry.active, Some(previous.clone()));
-        assert_eq!(registry.unregistered, vec![previous.clone()]);
-        assert_eq!(registry.registered, vec![previous]);
+        assert_eq!(active, Some(previous));
+        assert_eq!(
+            registry.calls,
+            vec![
+                "unregister_combo:⌘ ⇧ Space".to_string(),
+                "register_combo:⌘ ⌥ K".to_string(),
+                "register_combo:⌘ ⇧ Space".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_shortcut_starts_modifier_hold_when_switching_from_combo() {
+        let previous = ShortcutSettings::default();
+        let next = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::RightCommand,
+                hold_threshold_ms: 200,
+            },
+        };
+        let mut active = Some(previous.clone());
+        let mut registry = FakeShortcutRegistry::default();
+
+        let view = apply_shortcut_settings(&mut registry, &mut active, next.clone())
+            .expect("apply modifier hold");
+
+        assert_eq!(active, Some(next));
+        assert_eq!(view.display_label, "Hold Right ⌘");
+        assert_eq!(
+            registry.calls,
+            vec![
+                "unregister_combo:⌘ ⇧ Space".to_string(),
+                "start_modifier_hold:Hold Right ⌘".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_shortcut_rolls_back_to_combo_when_modifier_hold_start_fails() {
+        let previous = ShortcutSettings::default();
+        let next = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::RightCommand,
+                hold_threshold_ms: 200,
+            },
+        };
+        let mut active = Some(previous.clone());
+        let mut registry = FakeShortcutRegistry {
+            fail_next_modifier_hold_start: Some("Accessibility permission is required".to_string()),
+            ..FakeShortcutRegistry::default()
+        };
+
+        let error = apply_shortcut_settings(&mut registry, &mut active, next)
+            .expect_err("modifier-hold start should fail");
+
+        assert!(error.contains("Accessibility permission is required"));
+        assert_eq!(active, Some(previous));
+        assert_eq!(
+            registry.calls,
+            vec![
+                "unregister_combo:⌘ ⇧ Space".to_string(),
+                "start_modifier_hold:Hold Right ⌘".to_string(),
+                "register_combo:⌘ ⇧ Space".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_shortcut_stops_modifier_hold_when_switching_back_to_combo() {
+        let previous = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::RightCommand,
+                hold_threshold_ms: 200,
+            },
+        };
+        let next = ShortcutSettings::default();
+        let mut active = Some(previous.clone());
+        let mut registry = FakeShortcutRegistry::default();
+
+        let view = apply_shortcut_settings(&mut registry, &mut active, next.clone())
+            .expect("switch back to combo");
+
+        assert_eq!(active, Some(next));
+        assert_eq!(view.display_label, "⌘ ⇧ Space");
+        assert_eq!(
+            registry.calls,
+            vec![
+                "stop_modifier_hold:Hold Right ⌘".to_string(),
+                "register_combo:⌘ ⇧ Space".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_shortcut_rolls_back_to_modifier_hold_when_combo_registration_fails() {
+        let previous = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::RightCommand,
+                hold_threshold_ms: 200,
+            },
+        };
+        let next = ShortcutSettings::default();
+        let mut active = Some(previous.clone());
+        let mut registry = FakeShortcutRegistry {
+            fail_next_combo_register: Some("shortcut already registered".to_string()),
+            ..FakeShortcutRegistry::default()
+        };
+
+        let error = apply_shortcut_settings(&mut registry, &mut active, next)
+            .expect_err("combo registration should fail");
+
+        assert!(error.contains("shortcut already registered"));
+        assert_eq!(active, Some(previous));
+        assert_eq!(
+            registry.calls,
+            vec![
+                "stop_modifier_hold:Hold Right ⌘".to_string(),
+                "register_combo:⌘ ⇧ Space".to_string(),
+                "start_modifier_hold:Hold Right ⌘".to_string(),
+            ]
+        );
     }
 
     #[test]

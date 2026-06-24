@@ -173,7 +173,7 @@ struct TauriShortcutRegistry<'a> {
 }
 
 impl ShortcutRegistry for TauriShortcutRegistry<'_> {
-    fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+    fn register_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
         self.app
             .global_shortcut()
             .on_shortcut(settings.to_tauri_shortcut()?, |app, _shortcut, event| {
@@ -182,11 +182,25 @@ impl ShortcutRegistry for TauriShortcutRegistry<'_> {
             .map_err(|err| err.to_string())
     }
 
-    fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+    fn unregister_combo(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
         self.app
             .global_shortcut()
             .unregister(settings.to_tauri_shortcut()?)
             .map_err(|err| err.to_string())
+    }
+
+    fn start_modifier_hold(
+        &mut self,
+        _settings: &shortcut::ModifierHoldSettings,
+    ) -> Result<(), String> {
+        Err("Modifier-hold shortcuts are not wired yet.".to_string())
+    }
+
+    fn stop_modifier_hold(
+        &mut self,
+        _settings: &shortcut::ModifierHoldSettings,
+    ) -> Result<(), String> {
+        Ok(())
     }
 }
 

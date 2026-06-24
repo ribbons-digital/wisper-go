@@ -1,7 +1,7 @@
 # Handoff — Wispergo In-Process Inference Migration
 
-**Date:** 2026-06-24 (updated during R5 shortcut customization planning)
-**Next session focus:** Review the R5 shortcut customization spec, then decide whether to proceed into the R5.1 key-combination customization implementation plan. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
+**Date:** 2026-06-24 (updated during R5.1 shortcut combo implementation planning)
+**Next session focus:** Review/approve the R5.1 shortcut combo customization implementation plan, then implement key-combination customization only. Apple Developer enrollment is still in progress before the first signed/notarized public DMG. Do **not** use the `librarian` skill for this project unless its Pi prompt-interface issue is fixed.
 
 > **Standing rule:** This file is tracked and is kept in sync with the roadmap whenever the roadmap changes. If the roadmap says phase X.Y is ✅, this file must reflect that. A fresh agent should be able to read this + the roadmap and continue without re-deriving state.
 
@@ -53,7 +53,8 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 - **PRODUCT.md** — strategic product context for UI/release polish.
 - **Release-readiness spec:** `docs/superpowers/specs/2026-06-20-release-readiness-and-ui-polish-design.md`.
 - **R1 implementation plan:** `docs/superpowers/plans/2026-06-20-r1-first-run-setup-readiness.md`.
-- **R5 shortcut customization spec:** `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md` — draft for user review; covers combo customization and single modifier-key hold as separate PRs.
+- **R5 shortcut customization spec:** `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md` — merged via PR #28; covers combo customization and single modifier-key hold as separate PRs.
+- **R5.1 shortcut combo plan:** `docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md` — draft implementation plan for key-combination customization only.
 - **README** — updated through Phase 6 and the language UX follow-up.
 
 ## Phase/slice status snapshot
@@ -71,7 +72,7 @@ Wispergo is being migrated from a fully-bundled, sidecar-based offline app (~3.5
 | Compact ZH label follow-up | ✅ | PR #20 |
 | Release readiness and UI polish | ✅ through R4 | PRs #21-#26 |
 | Paste-target hotfix | ✅ | PR #27 |
-| Shortcut customization | 🟡 R5 planning | — |
+| Shortcut customization | 🟡 R5.1 planning | — |
 | 7 Streaming (optional follow-on) | ⬜ deferred | — |
 
 ## How this project runs (standing conventions — follow these)
@@ -135,9 +136,9 @@ From `AGENTS.md` and the user's documented workflow:
 
 **Issue:** Wispergo's dictation trigger is currently hardcoded to `Command + Shift + Space`. Users need conflict-safe customization and a more dictation-native single-key hold option. The user's keyboard has left/right Command but no Right Option, so Right Command must be a supported modifier-hold option.
 
-**Planning status:** Draft spec created on branch `r5-shortcut-customization-spec`: `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md`. The spec covers both combo customization and single modifier-key hold, but deliberately splits implementation into separate PRs: R5.1 for key-combination customization and R5.2 for single modifier hold. Reviewed direction with `claude -p --model claude-opus-4-8`; consensus was to preserve the default, implement combo customization first, then add listen-only modifier-hold monitoring with threshold/cancel-on-chord behavior.
+**Planning status:** Umbrella spec merged via PR #28: `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md`. R5.1 implementation plan drafted on branch `r5-1-shortcut-combo-plan`: `docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md`. The plan implements key-combination customization only; R5.2 single modifier hold remains a later PR.
 
-**Next step:** User review/approval of the R5 spec. If approved, write the R5.1 implementation plan only; do not implement R5.2 in the same PR.
+**Next step:** User review/approval of the R5.1 plan. If approved, create/continue an implementation branch for R5.1 and execute the plan. Do not implement R5.2 in the same PR.
 
 ## Key gotchas learned this run (save yourself the time)
 
@@ -180,4 +181,4 @@ gh pr list --state merged --limit 20                                            
 cargo build --workspace && cargo test --workspace && pnpm test:ts                  # baseline green check
 ```
 
-Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, R3.5 settings/menu polish is merged via PR #25, R4 CI/release workflow is merged via PR #26, and paste-target hotfix is merged via PR #27. R5 shortcut customization planning is in progress on `r5-shortcut-customization-spec`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).
+Baseline state (as of this handoff): Phase 6 is merged via PR #18, language UX is merged via PR #19, compact ZH label is merged via PR #20, release-readiness design is merged via PR #21, R1 setup readiness is merged via PR #22, R2 icon refresh is merged via PR #23, R3 recording waveform UI is merged via PR #24, R3.5 settings/menu polish is merged via PR #25, R4 CI/release workflow is merged via PR #26, paste-target hotfix is merged via PR #27, and R5 umbrella shortcut customization spec is merged via PR #28. R5.1 shortcut combo customization planning is in progress on `r5-1-shortcut-combo-plan`. Phase 5.3 full PR gate passed before opening PR #16: `cargo build --workspace`, `cargo test --workspace`, core clippy with and without `llama-cpp`, desktop clippy, and `pnpm test:ts`. cmake + clang installed and required (the `whisper-rs` and `llama-cpp` features are on by default).

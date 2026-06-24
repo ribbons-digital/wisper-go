@@ -67,6 +67,7 @@ fn spawn_timer_worker(
     machine: Arc<Mutex<ModifierHoldStateMachine>>,
 ) -> (mpsc::Sender<TimerCommand>, thread::JoinHandle<()>) {
     let (tx, rx) = mpsc::channel::<TimerCommand>();
+    let timer_tx_for_worker = tx.clone();
     let join = thread::Builder::new()
         .name("wispergo-modifier-hold-timer".to_string())
         .spawn(move || {
@@ -105,7 +106,12 @@ fn spawn_timer_worker(
                 let mut pending = Vec::new();
                 for timer in timers.drain(..) {
                     if timer.deadline <= now {
-                        dispatch_input(&app, &machine, timer.input);
+                        dispatch_input_with_timer(
+                            &app,
+                            &machine,
+                            &timer_tx_for_worker,
+                            timer.input,
+                        );
                     } else {
                         pending.push(timer);
                     }
@@ -293,30 +299,6 @@ fn dispatch_input_with_timer(
 }
 
 #[cfg(target_os = "macos")]
-fn dispatch_input(
-    app: &AppHandle,
-    machine: &Arc<Mutex<ModifierHoldStateMachine>>,
-    input: ModifierHoldInput,
-) {
-    let actions = machine
-        .lock()
-        .expect("modifier hold state lock")
-        .handle_event(input);
-    for action in actions {
-        match action {
-            ModifierHoldAction::EmitPressed => {
-                let _ = app.emit(RECORD_SHORTCUT_EVENT, "Pressed");
-            }
-            ModifierHoldAction::EmitReleased => {
-                let _ = app.emit(RECORD_SHORTCUT_EVENT, "Released");
-            }
-            ModifierHoldAction::ScheduleThreshold { .. }
-            | ModifierHoldAction::ScheduleWatchdog { .. } => {}
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
 fn run_actions(
     app: &AppHandle,
     timer: &mpsc::Sender<TimerCommand>,
@@ -434,5 +416,14 @@ mod tests {
         assert!(source.contains("CallbackResult::Keep"));
         assert!(!source.contains(&drop_variant));
         assert!(!source.contains(&replace_variant));
+    }
+
+    #[test]
+    fn timer_worker_routes_elapsed_thresholds_through_action_runner() {
+        let source = include_str!("modifier_hold.rs");
+
+        assert!(source.contains(
+            "dispatch_input_with_timer(&app, &machine, &timer_tx_for_worker, timer.input)"
+        ));
     }
 }

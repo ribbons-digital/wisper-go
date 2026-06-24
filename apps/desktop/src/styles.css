@@ -359,6 +359,74 @@ button:disabled {
   border-right: 0;
 }
 
+.shortcut-settings {
+  border-right: 1px solid #d9d9d4;
+}
+
+.shortcut-current {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+  border-radius: 14px;
+  background: #f0efe9;
+  color: #181816;
+}
+
+.shortcut-current .settings-icon {
+  color: #6d687f;
+}
+
+.shortcut-current strong {
+  font-size: 1.1rem;
+}
+
+.shortcut-modifiers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-panel .shortcut-modifier-toggle {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 2px solid #bdbbb4;
+  border-radius: 14px;
+  background: #f6f5ef;
+  color: #42423d;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shortcut-modifier-toggle input {
+  min-height: auto;
+  width: auto;
+  padding: 0;
+  accent-color: #1d1c31;
+}
+
+button.is-recording-shortcut {
+  border-color: #5f4ca0;
+  background: #e9e4ff;
+  color: #31256a;
+}
+
+.shortcut-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.shortcut-error {
+  color: #8a2f1b;
+  font-weight: 650;
+}
+
 .settings-card-heading {
   display: flex;
   align-items: start;

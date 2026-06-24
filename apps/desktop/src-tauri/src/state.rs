@@ -1,6 +1,7 @@
 use std::sync::Mutex;
 
 use crate::audio::AudioInputSession;
+use crate::shortcut::ShortcutSettings;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -162,6 +163,7 @@ pub struct AppState {
     recording: Mutex<Option<RecordingSession>>,
     selected_microphone_id: Mutex<Option<String>>,
     local_model_settings: Mutex<LocalModelSettings>,
+    shortcut_settings: Mutex<ShortcutSettings>,
 }
 
 impl Default for AppState {
@@ -170,6 +172,7 @@ impl Default for AppState {
             recording: Mutex::new(None),
             selected_microphone_id: Mutex::new(None),
             local_model_settings: Mutex::new(LocalModelSettings::default()),
+            shortcut_settings: Mutex::new(ShortcutSettings::default()),
         }
     }
 }
@@ -216,6 +219,20 @@ impl AppState {
             .expect("local model settings lock") = settings;
     }
 
+    pub fn shortcut_settings(&self) -> ShortcutSettings {
+        self.shortcut_settings
+            .lock()
+            .expect("shortcut settings lock")
+            .clone()
+    }
+
+    pub fn set_shortcut_settings(&self, settings: ShortcutSettings) {
+        *self
+            .shortcut_settings
+            .lock()
+            .expect("shortcut settings lock") = settings.normalized();
+    }
+
     pub fn start_recording(&self, _mode: &str) -> Result<(), String> {
         let device_id = self.selected_microphone_id();
         let session = crate::audio::start_input_session(device_id.as_deref())?;
@@ -249,6 +266,9 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::{AppState, CleanupMode, RecognitionLanguage, RecordingSession, RecordingStatus};
+    use crate::shortcut::{
+        ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers, ShortcutSettings,
+    };
 
     #[test]
     fn selected_microphone_round_trips() {
@@ -280,6 +300,34 @@ mod tests {
                 cleanup_mode: CleanupMode::PunctuationOnly,
             }
         );
+    }
+
+    #[test]
+    fn shortcut_settings_default_to_command_shift_space() {
+        let state = AppState::default();
+
+        assert_eq!(state.shortcut_settings(), ShortcutSettings::default());
+    }
+
+    #[test]
+    fn shortcut_settings_round_trip() {
+        let state = AppState::default();
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: true,
+                    shift: false,
+                    option: true,
+                    control: false,
+                },
+                key: ShortcutKey::KeyK,
+            },
+        };
+
+        state.set_shortcut_settings(settings.clone());
+
+        assert_eq!(state.shortcut_settings(), settings);
     }
 
     #[test]

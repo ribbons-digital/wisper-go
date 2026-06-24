@@ -8,6 +8,8 @@ import type {
   MicrophoneStatus,
   RecognitionLanguage,
   RecordingMode,
+  ShortcutSettings,
+  ShortcutSettingsView,
   StopRecordingOutput,
 } from "../types/pipeline";
 
@@ -85,6 +87,16 @@ export async function setRecognitionLanguage(
   language: RecognitionLanguage,
 ): Promise<RecognitionLanguage> {
   return invoke<RecognitionLanguage>("set_recognition_language", { language });
+}
+
+export async function shortcutSettings(): Promise<ShortcutSettingsView> {
+  return invoke<ShortcutSettingsView>("shortcut_settings");
+}
+
+export async function setShortcutSettings(
+  settings: ShortcutSettings,
+): Promise<ShortcutSettingsView> {
+  return invoke<ShortcutSettingsView>("set_shortcut_settings", { settings });
 }
 
 export async function setLanguageMenuOpen(open: boolean): Promise<void> {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "./SettingsPanel";
@@ -261,8 +261,111 @@ describe("SettingsPanel", () => {
   it("shows the reliable global shortcut", () => {
     renderSettingsPanel();
 
-    expect(screen.getByText("⌘ ⇧ Space")).toBeInTheDocument();
+    expect(screen.getAllByText("⌘ ⇧ Space").length).toBeGreaterThan(0);
+    expect(screen.getByRole("region", { name: "Shortcut preferences" })).toBeInTheDocument();
     expect(document.querySelectorAll(".settings-icon").length).toBeGreaterThan(0);
+  });
+
+  it("saves shortcut combo settings", async () => {
+    const user = userEvent.setup();
+    const onShortcutSettingsSave = vi.fn();
+    renderSettingsPanel({ onShortcutSettingsSave });
+
+    await user.click(screen.getByLabelText("⇧ Shift"));
+    await user.click(screen.getByLabelText("⌥ Option"));
+    await user.selectOptions(screen.getByLabelText("Key"), "keyK");
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+
+    expect(onShortcutSettingsSave).toHaveBeenCalledWith({
+      mode: "combo",
+      combo: {
+        modifiers: { command: true, shift: false, option: true, control: false },
+        key: "keyK",
+      },
+    });
+  });
+
+  it("records and saves shortcut combo settings", async () => {
+    const user = userEvent.setup();
+    const onShortcutSettingsSave = vi.fn();
+    renderSettingsPanel({ onShortcutSettingsSave });
+
+    const recordButton = screen.getByRole("button", { name: "Record shortcut" });
+    await user.click(recordButton);
+    fireEvent.keyDown(recordButton, { code: "KeyK", metaKey: true, altKey: true });
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+
+    expect(onShortcutSettingsSave).toHaveBeenCalledWith({
+      mode: "combo",
+      combo: {
+        modifiers: { command: true, shift: false, option: true, control: false },
+        key: "keyK",
+      },
+    });
+  });
+
+  it("records the default Command Shift Space combo", async () => {
+    const user = userEvent.setup();
+    const onShortcutSettingsSave = vi.fn();
+    renderSettingsPanel({ onShortcutSettingsSave });
+
+    const recordButton = screen.getByRole("button", { name: "Record shortcut" });
+    await user.click(recordButton);
+    fireEvent.keyDown(recordButton, { code: "Space", metaKey: true, shiftKey: true });
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+
+    expect(onShortcutSettingsSave).toHaveBeenCalledWith({
+      mode: "combo",
+      combo: {
+        modifiers: { command: true, shift: true, option: false, control: false },
+        key: "space",
+      },
+    });
+  });
+
+  it("rejects recorded shortcut combos without a modifier", async () => {
+    const user = userEvent.setup();
+    renderSettingsPanel();
+
+    const recordButton = screen.getByRole("button", { name: "Record shortcut" });
+    await user.click(recordButton);
+    fireEvent.keyDown(recordButton, { code: "KeyK" });
+
+    expect(screen.getByRole("status")).toHaveTextContent("at least one modifier");
+  });
+
+  it("resets shortcut combo settings to default", async () => {
+    const user = userEvent.setup();
+    const onShortcutSettingsSave = vi.fn();
+    renderSettingsPanel({
+      onShortcutSettingsSave,
+      shortcutView: {
+        settings: {
+          mode: "combo",
+          combo: {
+            modifiers: { command: true, shift: false, option: true, control: false },
+            key: "keyK",
+          },
+        },
+        displayLabel: "⌘ ⌥ K",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Reset to default" }));
+
+    expect(onShortcutSettingsSave).toHaveBeenCalledWith({
+      mode: "combo",
+      combo: {
+        modifiers: { command: true, shift: true, option: false, control: false },
+        key: "space",
+      },
+    });
+  });
+
+  it("renders shortcut save errors", () => {
+    renderSettingsPanel({ shortcutError: "Shortcut is already registered" });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Shortcut is already registered");
   });
 
   it("refreshes accessibility permission on demand", async () => {

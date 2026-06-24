@@ -35,6 +35,87 @@ export type LocalModelSettings = {
   cleanupMode: CleanupMode;
 };
 
+export type ShortcutMode = "combo";
+
+export type ShortcutKey =
+  | "space"
+  | "enter"
+  | "escape"
+  | "tab"
+  | "backquote"
+  | "minus"
+  | "equal"
+  | "bracketLeft"
+  | "bracketRight"
+  | "backslash"
+  | "semicolon"
+  | "quote"
+  | "comma"
+  | "period"
+  | "slash"
+  | "arrowUp"
+  | "arrowDown"
+  | "arrowLeft"
+  | "arrowRight"
+  | "digit0"
+  | "digit1"
+  | "digit2"
+  | "digit3"
+  | "digit4"
+  | "digit5"
+  | "digit6"
+  | "digit7"
+  | "digit8"
+  | "digit9"
+  | "keyA"
+  | "keyB"
+  | "keyC"
+  | "keyD"
+  | "keyE"
+  | "keyF"
+  | "keyG"
+  | "keyH"
+  | "keyI"
+  | "keyJ"
+  | "keyK"
+  | "keyL"
+  | "keyM"
+  | "keyN"
+  | "keyO"
+  | "keyP"
+  | "keyQ"
+  | "keyR"
+  | "keyS"
+  | "keyT"
+  | "keyU"
+  | "keyV"
+  | "keyW"
+  | "keyX"
+  | "keyY"
+  | "keyZ";
+
+export type ShortcutModifiers = {
+  command: boolean;
+  shift: boolean;
+  option: boolean;
+  control: boolean;
+};
+
+export type ShortcutCombo = {
+  modifiers: ShortcutModifiers;
+  key: ShortcutKey;
+};
+
+export type ShortcutSettings = {
+  mode: ShortcutMode;
+  combo: ShortcutCombo;
+};
+
+export type ShortcutSettingsView = {
+  settings: ShortcutSettings;
+  displayLabel: string;
+};
+
 export type CleanupRuntimeState = "disabled" | "starting" | "ready" | "unavailable" | "failed";
 
 export type CleanupRuntimeStatus = {

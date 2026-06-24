@@ -4,6 +4,7 @@ mod inference;
 #[allow(dead_code)]
 mod insertion;
 mod platform;
+mod shortcut;
 mod state;
 #[allow(dead_code)]
 mod trigger;
@@ -20,12 +21,17 @@ use commands::settings::{
     fallback_policy_label, list_microphones, load_persisted_settings, local_model_settings,
     microphone_status, recognition_language, request_accessibility, request_microphone_access,
     selected_microphone_id, set_local_model_settings, set_microphone_device,
-    set_recognition_language, sync_inference_manager_for_settings,
+    set_recognition_language, set_shortcut_settings, shortcut_settings,
+    sync_inference_manager_for_settings,
 };
 use inference::manager::InferenceManager;
+use shortcut::{
+    shortcut_event_payload, ShortcutRegistry, ShortcutSettings, ShortcutSettingsView,
+    RECORD_SHORTCUT_EVENT,
+};
 use state::{AppState, CleanupMode, RecognitionLanguage};
 use tauri::{include_image, Emitter, Manager};
-use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
 #[tauri::command]
 fn app_health() -> &'static str {
@@ -65,6 +71,7 @@ pub fn run() {
         .manage(InferenceManager::product())
         .manage(AssetClient::default())
         .manage(FloatingChromeState::default())
+        .manage(ActiveShortcutState::default())
         .setup(move |app| {
             if let Err(err) = load_persisted_settings(app.handle(), app.state::<AppState>().inner())
             {
@@ -75,7 +82,9 @@ pub fn run() {
                 app.state::<InferenceManager>().inner(),
                 &app.state::<AppState>().inner().local_model_settings(),
             );
-            setup_global_shortcut(app.handle())?;
+            setup_global_shortcut_plugin(app.handle())?;
+            setup_active_shortcut(app.handle())
+                .map_err(|err| -> Box<dyn std::error::Error> { err.into() })?;
             setup_menu_bar(app)?;
             show_settings_if_setup_required(app.handle());
             apply_floating_chrome_windows(app.handle(), false, false, false)?;
@@ -122,6 +131,8 @@ pub fn run() {
             set_local_model_settings,
             recognition_language,
             set_recognition_language,
+            shortcut_settings,
+            set_shortcut_settings,
             set_language_menu_open,
             set_floating_chrome_reason
         ])
@@ -134,26 +145,49 @@ pub fn run() {
         });
 }
 
-fn setup_global_shortcut(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let shortcut = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::Space);
+#[derive(Default)]
+struct ActiveShortcutState(Mutex<Option<ShortcutSettings>>);
 
-    app.plugin(
-        tauri_plugin_global_shortcut::Builder::new()
-            .with_shortcut(shortcut)?
-            .with_handler(|app, shortcut, event| {
-                if !shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space) {
-                    return;
-                }
-
-                let payload = match event.state {
-                    ShortcutState::Pressed => "Pressed",
-                    ShortcutState::Released => "Released",
-                };
-                let _ = app.emit("wispergo://record-shortcut", payload);
-            })
-            .build(),
-    )?;
+fn setup_global_shortcut_plugin(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    app.plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
     Ok(())
+}
+
+fn setup_active_shortcut(app: &tauri::AppHandle) -> Result<(), String> {
+    let settings = app.state::<AppState>().shortcut_settings();
+    apply_shortcut_settings_for_app(app, settings).map(|_| ())
+}
+
+pub(crate) fn apply_shortcut_settings_for_app(
+    app: &tauri::AppHandle,
+    settings: ShortcutSettings,
+) -> Result<ShortcutSettingsView, String> {
+    let active_state = app.state::<ActiveShortcutState>();
+    let mut active = active_state.0.lock().map_err(|err| err.to_string())?;
+    let mut registry = TauriShortcutRegistry { app };
+    shortcut::apply_shortcut_settings(&mut registry, &mut active, settings)
+}
+
+struct TauriShortcutRegistry<'a> {
+    app: &'a tauri::AppHandle,
+}
+
+impl ShortcutRegistry for TauriShortcutRegistry<'_> {
+    fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+        self.app
+            .global_shortcut()
+            .on_shortcut(settings.to_tauri_shortcut()?, |app, _shortcut, event| {
+                let _ = app.emit(RECORD_SHORTCUT_EVENT, shortcut_event_payload(event.state));
+            })
+            .map_err(|err| err.to_string())
+    }
+
+    fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+        self.app
+            .global_shortcut()
+            .unregister(settings.to_tauri_shortcut()?)
+            .map_err(|err| err.to_string())
+    }
 }
 
 const WISPERGO_TRAY_ID: &str = "wispergo-tray";
@@ -1619,6 +1653,8 @@ mod tests {
 
         assert!(registered_commands.contains(&"recognition_language".to_string()));
         assert!(registered_commands.contains(&"set_recognition_language".to_string()));
+        assert!(registered_commands.contains(&"shortcut_settings".to_string()));
+        assert!(registered_commands.contains(&"set_shortcut_settings".to_string()));
         assert!(registered_commands.contains(&"set_language_menu_open".to_string()));
         assert!(registered_commands.contains(&"ensure_ollama_setup".to_string()));
         assert!(registered_commands.contains(&"asset_readiness".to_string()));

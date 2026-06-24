@@ -7,9 +7,16 @@ type Props = {
   busy?: boolean;
   expanded?: boolean;
   setupNeeded?: boolean;
+  shortcutLabel?: string;
 };
 
-export function FloatingRecorder({ status, busy = false, expanded = true, setupNeeded = false }: Props) {
+export function FloatingRecorder({
+  status,
+  busy = false,
+  expanded = true,
+  setupNeeded = false,
+  shortcutLabel = "Command + Shift + Space",
+}: Props) {
   const isRecording = status === "recording";
   const showWaveform = expanded && isRecording && !busy && !setupNeeded;
   const className = ["floating-recorder", expanded ? "is-expanded" : "is-collapsed"].join(" ");
@@ -35,7 +42,7 @@ export function FloatingRecorder({ status, busy = false, expanded = true, setupN
       <div className="recording-dot" aria-hidden="true" />
       <div className="recording-copy">
         <div className="recording-status">{setupNeeded ? "Setup needed" : busy ? "Processing" : "Ready"}</div>
-        <div className="recording-hint">{setupNeeded ? "open settings to finish" : "hold Command + Shift + Space"}</div>
+        <div className="recording-hint">{setupNeeded ? "open settings to finish" : `hold ${shortcutLabel}`}</div>
       </div>
     </section>
   );

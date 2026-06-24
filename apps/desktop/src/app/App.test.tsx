@@ -12,16 +12,28 @@ import {
   requestMicrophoneAccess,
   requestAccessibility,
   selectedMicrophoneId,
+  shortcutSettings,
   setLanguageMenuOpen,
   setFloatingChromeReason,
   setMicrophoneDevice,
   setLocalModelSettings,
   setRecognitionLanguage,
+  setShortcutSettings,
   startRecording,
   stopRecording,
 } from "../lib/tauriApi";
 
 const eventListeners = new Map<string, (event: { payload: unknown }) => void>();
+const defaultShortcutView = vi.hoisted(() => ({
+  settings: {
+    mode: "combo",
+    combo: {
+      modifiers: { command: true, shift: true, option: false, control: false },
+      key: "space",
+    },
+  },
+  displayLabel: "⌘ ⇧ Space",
+}) as const);
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn((eventName: string, callback: (event: { payload: unknown }) => void) => {
@@ -55,11 +67,13 @@ vi.mock("../lib/tauriApi", () => ({
   requestMicrophoneAccess: vi.fn().mockResolvedValue({ granted: true, canPrompt: true }),
   recordingStatus: vi.fn().mockResolvedValue("idle"),
   selectedMicrophoneId: vi.fn().mockResolvedValue("default"),
+  shortcutSettings: vi.fn().mockResolvedValue(defaultShortcutView),
   setLanguageMenuOpen: vi.fn().mockResolvedValue(undefined),
   setFloatingChromeReason: vi.fn().mockResolvedValue(false),
   setMicrophoneDevice: vi.fn().mockResolvedValue(undefined),
   setLocalModelSettings: vi.fn().mockImplementation((settings) => Promise.resolve(settings)),
   setRecognitionLanguage: vi.fn().mockResolvedValue("en"),
+  setShortcutSettings: vi.fn().mockImplementation((settings) => Promise.resolve({ settings, displayLabel: "⌘ ⌥ K" })),
   startRecording: vi.fn().mockResolvedValue(undefined),
   stopRecording: vi.fn().mockResolvedValue({
     result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
@@ -80,11 +94,13 @@ describe("App", () => {
     vi.mocked(requestAccessibility).mockReset();
     vi.mocked(requestMicrophoneAccess).mockReset();
     vi.mocked(selectedMicrophoneId).mockReset();
+    vi.mocked(shortcutSettings).mockReset();
     vi.mocked(setLanguageMenuOpen).mockReset();
     vi.mocked(setFloatingChromeReason).mockReset();
     vi.mocked(setMicrophoneDevice).mockReset();
     vi.mocked(setLocalModelSettings).mockReset();
     vi.mocked(setRecognitionLanguage).mockReset();
+    vi.mocked(setShortcutSettings).mockReset();
     vi.mocked(startRecording).mockReset();
     vi.mocked(stopRecording).mockReset();
     eventListeners.clear();
@@ -105,11 +121,15 @@ describe("App", () => {
     vi.mocked(requestAccessibility).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(requestMicrophoneAccess).mockResolvedValue({ granted: true, canPrompt: true });
     vi.mocked(selectedMicrophoneId).mockResolvedValue("default");
+    vi.mocked(shortcutSettings).mockResolvedValue(defaultShortcutView);
     vi.mocked(setLanguageMenuOpen).mockResolvedValue(undefined);
     mockFloatingChromeReasonState();
     vi.mocked(setMicrophoneDevice).mockResolvedValue(undefined);
     vi.mocked(setLocalModelSettings).mockImplementation((settings) => Promise.resolve(settings));
     vi.mocked(setRecognitionLanguage).mockImplementation(async (language) => language);
+    vi.mocked(setShortcutSettings).mockImplementation((settings) =>
+      Promise.resolve({ settings, displayLabel: "⌘ ⌥ K" }),
+    );
     vi.mocked(startRecording).mockResolvedValue(undefined);
     vi.mocked(stopRecording).mockResolvedValue({
       result: { kind: "insert_text", text: "hello from voice", source: "local", confidence: null },
@@ -196,7 +216,7 @@ describe("App", () => {
     await emitFloatingChromeExpanded(true);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent(
-      "hold Command + Shift + Space",
+      "hold ⌘ ⇧ Space",
     );
     expect(screen.queryByRole("button", { name: /dictation/i })).not.toBeInTheDocument();
   });
@@ -326,6 +346,28 @@ describe("App", () => {
       asrModelId: "medium",
       recognitionLanguage: "zh",
       cleanupMode: "punctuation_only",
+    });
+  });
+
+  it("saves shortcut combo settings from Settings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByRole("region", { name: "Shortcut preferences" })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("⇧ Shift"));
+    await user.click(screen.getByLabelText("⌥ Option"));
+    await user.selectOptions(screen.getByLabelText("Key"), "keyK");
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+
+    expect(setShortcutSettings).toHaveBeenCalledWith({
+      mode: "combo",
+      combo: {
+        modifiers: { command: true, shift: false, option: true, control: false },
+        key: "keyK",
+      },
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText("⌘ ⌥ K").length).toBeGreaterThan(0);
     });
   });
 

@@ -1,0 +1,684 @@
+use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+
+pub const RECORD_SHORTCUT_EVENT: &str = "wispergo://record-shortcut";
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutSettings {
+    #[serde(default)]
+    pub mode: ShortcutMode,
+    #[serde(default)]
+    pub combo: ShortcutCombo,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShortcutMode {
+    #[default]
+    Combo,
+}
+
+impl<'de> serde::Deserialize<'de> for ShortcutMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(match value.unwrap_or_default().as_str() {
+            "combo" => Self::Combo,
+            _ => Self::Combo,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutCombo {
+    #[serde(default)]
+    pub modifiers: ShortcutModifiers,
+    #[serde(default)]
+    pub key: ShortcutKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutModifiers {
+    #[serde(default)]
+    pub command: bool,
+    #[serde(default)]
+    pub shift: bool,
+    #[serde(default)]
+    pub option: bool,
+    #[serde(default)]
+    pub control: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ShortcutKey {
+    #[default]
+    Space,
+    Enter,
+    Escape,
+    Tab,
+    Backquote,
+    Minus,
+    Equal,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Quote,
+    Comma,
+    Period,
+    Slash,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    Digit0,
+    Digit1,
+    Digit2,
+    Digit3,
+    Digit4,
+    Digit5,
+    Digit6,
+    Digit7,
+    Digit8,
+    Digit9,
+    KeyA,
+    KeyB,
+    KeyC,
+    KeyD,
+    KeyE,
+    KeyF,
+    KeyG,
+    KeyH,
+    KeyI,
+    KeyJ,
+    KeyK,
+    KeyL,
+    KeyM,
+    KeyN,
+    KeyO,
+    KeyP,
+    KeyQ,
+    KeyR,
+    KeyS,
+    KeyT,
+    KeyU,
+    KeyV,
+    KeyW,
+    KeyX,
+    KeyY,
+    KeyZ,
+}
+
+impl<'de> serde::Deserialize<'de> for ShortcutKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(Self::from_code(value.as_deref()))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShortcutSettingsView {
+    pub settings: ShortcutSettings,
+    pub display_label: String,
+}
+
+impl Default for ShortcutModifiers {
+    fn default() -> Self {
+        Self {
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+        }
+    }
+}
+
+impl Default for ShortcutCombo {
+    fn default() -> Self {
+        Self {
+            modifiers: ShortcutModifiers::default(),
+            key: ShortcutKey::Space,
+        }
+    }
+}
+
+impl Default for ShortcutSettings {
+    fn default() -> Self {
+        Self {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo::default(),
+        }
+    }
+}
+
+impl ShortcutSettings {
+    pub fn normalized(self) -> Self {
+        match self.mode {
+            ShortcutMode::Combo => {
+                if !self.combo.modifiers.has_any() {
+                    Self::default()
+                } else {
+                    self
+                }
+            }
+        }
+    }
+
+    pub fn display_label(&self) -> String {
+        self.combo.display_label()
+    }
+
+    pub fn to_frontend(&self) -> ShortcutSettingsView {
+        let normalized = self.clone().normalized();
+        ShortcutSettingsView {
+            display_label: normalized.display_label(),
+            settings: normalized,
+        }
+    }
+
+    pub fn to_tauri_shortcut(&self) -> Result<Shortcut, String> {
+        self.combo.to_tauri_shortcut()
+    }
+}
+
+impl ShortcutModifiers {
+    pub fn has_any(&self) -> bool {
+        self.command || self.shift || self.option || self.control
+    }
+
+    fn to_tauri_modifiers(self) -> Modifiers {
+        let mut modifiers = Modifiers::empty();
+        if self.command {
+            modifiers |= Modifiers::SUPER;
+        }
+        if self.shift {
+            modifiers |= Modifiers::SHIFT;
+        }
+        if self.option {
+            modifiers |= Modifiers::ALT;
+        }
+        if self.control {
+            modifiers |= Modifiers::CONTROL;
+        }
+        modifiers
+    }
+
+    fn label_parts(self) -> Vec<&'static str> {
+        let mut parts = Vec::new();
+        if self.command {
+            parts.push("⌘");
+        }
+        if self.shift {
+            parts.push("⇧");
+        }
+        if self.option {
+            parts.push("⌥");
+        }
+        if self.control {
+            parts.push("⌃");
+        }
+        parts
+    }
+}
+
+impl ShortcutCombo {
+    pub fn display_label(&self) -> String {
+        let mut parts = self.modifiers.label_parts();
+        parts.push(self.key.label());
+        parts.join(" ")
+    }
+
+    pub fn to_tauri_shortcut(&self) -> Result<Shortcut, String> {
+        if !self.modifiers.has_any() {
+            return Err("Choose at least one modifier key.".to_string());
+        }
+        Ok(Shortcut::new(
+            Some(self.modifiers.to_tauri_modifiers()),
+            self.key.to_code(),
+        ))
+    }
+}
+
+impl ShortcutKey {
+    fn from_code(code: Option<&str>) -> Self {
+        match code.unwrap_or_default() {
+            "space" => Self::Space,
+            "enter" => Self::Enter,
+            "escape" => Self::Escape,
+            "tab" => Self::Tab,
+            "backquote" => Self::Backquote,
+            "minus" => Self::Minus,
+            "equal" => Self::Equal,
+            "bracketLeft" => Self::BracketLeft,
+            "bracketRight" => Self::BracketRight,
+            "backslash" => Self::Backslash,
+            "semicolon" => Self::Semicolon,
+            "quote" => Self::Quote,
+            "comma" => Self::Comma,
+            "period" => Self::Period,
+            "slash" => Self::Slash,
+            "arrowUp" => Self::ArrowUp,
+            "arrowDown" => Self::ArrowDown,
+            "arrowLeft" => Self::ArrowLeft,
+            "arrowRight" => Self::ArrowRight,
+            "digit0" => Self::Digit0,
+            "digit1" => Self::Digit1,
+            "digit2" => Self::Digit2,
+            "digit3" => Self::Digit3,
+            "digit4" => Self::Digit4,
+            "digit5" => Self::Digit5,
+            "digit6" => Self::Digit6,
+            "digit7" => Self::Digit7,
+            "digit8" => Self::Digit8,
+            "digit9" => Self::Digit9,
+            "keyA" => Self::KeyA,
+            "keyB" => Self::KeyB,
+            "keyC" => Self::KeyC,
+            "keyD" => Self::KeyD,
+            "keyE" => Self::KeyE,
+            "keyF" => Self::KeyF,
+            "keyG" => Self::KeyG,
+            "keyH" => Self::KeyH,
+            "keyI" => Self::KeyI,
+            "keyJ" => Self::KeyJ,
+            "keyK" => Self::KeyK,
+            "keyL" => Self::KeyL,
+            "keyM" => Self::KeyM,
+            "keyN" => Self::KeyN,
+            "keyO" => Self::KeyO,
+            "keyP" => Self::KeyP,
+            "keyQ" => Self::KeyQ,
+            "keyR" => Self::KeyR,
+            "keyS" => Self::KeyS,
+            "keyT" => Self::KeyT,
+            "keyU" => Self::KeyU,
+            "keyV" => Self::KeyV,
+            "keyW" => Self::KeyW,
+            "keyX" => Self::KeyX,
+            "keyY" => Self::KeyY,
+            "keyZ" => Self::KeyZ,
+            _ => Self::Space,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Space => "Space",
+            Self::Enter => "Return",
+            Self::Escape => "Esc",
+            Self::Tab => "Tab",
+            Self::Backquote => "`",
+            Self::Minus => "-",
+            Self::Equal => "=",
+            Self::BracketLeft => "[",
+            Self::BracketRight => "]",
+            Self::Backslash => "\\",
+            Self::Semicolon => ";",
+            Self::Quote => "'",
+            Self::Comma => ",",
+            Self::Period => ".",
+            Self::Slash => "/",
+            Self::ArrowUp => "↑",
+            Self::ArrowDown => "↓",
+            Self::ArrowLeft => "←",
+            Self::ArrowRight => "→",
+            Self::Digit0 => "0",
+            Self::Digit1 => "1",
+            Self::Digit2 => "2",
+            Self::Digit3 => "3",
+            Self::Digit4 => "4",
+            Self::Digit5 => "5",
+            Self::Digit6 => "6",
+            Self::Digit7 => "7",
+            Self::Digit8 => "8",
+            Self::Digit9 => "9",
+            Self::KeyA => "A",
+            Self::KeyB => "B",
+            Self::KeyC => "C",
+            Self::KeyD => "D",
+            Self::KeyE => "E",
+            Self::KeyF => "F",
+            Self::KeyG => "G",
+            Self::KeyH => "H",
+            Self::KeyI => "I",
+            Self::KeyJ => "J",
+            Self::KeyK => "K",
+            Self::KeyL => "L",
+            Self::KeyM => "M",
+            Self::KeyN => "N",
+            Self::KeyO => "O",
+            Self::KeyP => "P",
+            Self::KeyQ => "Q",
+            Self::KeyR => "R",
+            Self::KeyS => "S",
+            Self::KeyT => "T",
+            Self::KeyU => "U",
+            Self::KeyV => "V",
+            Self::KeyW => "W",
+            Self::KeyX => "X",
+            Self::KeyY => "Y",
+            Self::KeyZ => "Z",
+        }
+    }
+
+    fn to_code(self) -> Code {
+        match self {
+            Self::Space => Code::Space,
+            Self::Enter => Code::Enter,
+            Self::Escape => Code::Escape,
+            Self::Tab => Code::Tab,
+            Self::Backquote => Code::Backquote,
+            Self::Minus => Code::Minus,
+            Self::Equal => Code::Equal,
+            Self::BracketLeft => Code::BracketLeft,
+            Self::BracketRight => Code::BracketRight,
+            Self::Backslash => Code::Backslash,
+            Self::Semicolon => Code::Semicolon,
+            Self::Quote => Code::Quote,
+            Self::Comma => Code::Comma,
+            Self::Period => Code::Period,
+            Self::Slash => Code::Slash,
+            Self::ArrowUp => Code::ArrowUp,
+            Self::ArrowDown => Code::ArrowDown,
+            Self::ArrowLeft => Code::ArrowLeft,
+            Self::ArrowRight => Code::ArrowRight,
+            Self::Digit0 => Code::Digit0,
+            Self::Digit1 => Code::Digit1,
+            Self::Digit2 => Code::Digit2,
+            Self::Digit3 => Code::Digit3,
+            Self::Digit4 => Code::Digit4,
+            Self::Digit5 => Code::Digit5,
+            Self::Digit6 => Code::Digit6,
+            Self::Digit7 => Code::Digit7,
+            Self::Digit8 => Code::Digit8,
+            Self::Digit9 => Code::Digit9,
+            Self::KeyA => Code::KeyA,
+            Self::KeyB => Code::KeyB,
+            Self::KeyC => Code::KeyC,
+            Self::KeyD => Code::KeyD,
+            Self::KeyE => Code::KeyE,
+            Self::KeyF => Code::KeyF,
+            Self::KeyG => Code::KeyG,
+            Self::KeyH => Code::KeyH,
+            Self::KeyI => Code::KeyI,
+            Self::KeyJ => Code::KeyJ,
+            Self::KeyK => Code::KeyK,
+            Self::KeyL => Code::KeyL,
+            Self::KeyM => Code::KeyM,
+            Self::KeyN => Code::KeyN,
+            Self::KeyO => Code::KeyO,
+            Self::KeyP => Code::KeyP,
+            Self::KeyQ => Code::KeyQ,
+            Self::KeyR => Code::KeyR,
+            Self::KeyS => Code::KeyS,
+            Self::KeyT => Code::KeyT,
+            Self::KeyU => Code::KeyU,
+            Self::KeyV => Code::KeyV,
+            Self::KeyW => Code::KeyW,
+            Self::KeyX => Code::KeyX,
+            Self::KeyY => Code::KeyY,
+            Self::KeyZ => Code::KeyZ,
+        }
+    }
+}
+
+pub fn shortcut_event_payload(state: ShortcutState) -> &'static str {
+    match state {
+        ShortcutState::Pressed => "Pressed",
+        ShortcutState::Released => "Released",
+    }
+}
+
+pub trait ShortcutRegistry {
+    fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
+    fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
+}
+
+pub fn apply_shortcut_settings<R: ShortcutRegistry>(
+    registry: &mut R,
+    active: &mut Option<ShortcutSettings>,
+    next: ShortcutSettings,
+) -> Result<ShortcutSettingsView, String> {
+    let next = next.normalized();
+    let previous = active.clone();
+
+    if previous.as_ref() == Some(&next) {
+        return Ok(next.to_frontend());
+    }
+
+    if let Some(previous_settings) = previous.as_ref() {
+        registry.unregister(previous_settings)?;
+    }
+
+    if let Err(register_error) = registry.register(&next) {
+        if let Some(previous_settings) = previous.as_ref() {
+            if let Err(rollback_error) = registry.register(previous_settings) {
+                return Err(format!(
+                    "Shortcut could not be changed: {register_error}. The previous shortcut could not be restored: {rollback_error}"
+                ));
+            }
+            *active = Some(previous_settings.clone());
+        } else {
+            *active = None;
+        }
+        return Err(format!("Shortcut could not be changed: {register_error}"));
+    }
+
+    *active = Some(next.clone());
+    Ok(next.to_frontend())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_shortcut_is_command_shift_space() {
+        let settings = ShortcutSettings::default();
+
+        assert!(settings.combo.modifiers.command);
+        assert!(settings.combo.modifiers.shift);
+        assert!(!settings.combo.modifiers.option);
+        assert!(!settings.combo.modifiers.control);
+        assert_eq!(settings.combo.key, ShortcutKey::Space);
+        assert_eq!(settings.display_label(), "⌘ ⇧ Space");
+    }
+
+    #[test]
+    fn missing_shortcut_fields_deserialize_to_default_combo() {
+        let settings: ShortcutSettings = serde_json::from_str("{}").expect("deserialize");
+
+        assert_eq!(settings, ShortcutSettings::default());
+    }
+
+    #[test]
+    fn invalid_empty_modifier_combo_normalizes_to_default() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: false,
+                    shift: false,
+                    option: false,
+                    control: false,
+                },
+                key: ShortcutKey::KeyA,
+            },
+        };
+
+        assert_eq!(settings.normalized(), ShortcutSettings::default());
+    }
+
+    #[test]
+    fn custom_combo_labels_use_mac_symbols() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: true,
+                    shift: false,
+                    option: true,
+                    control: false,
+                },
+                key: ShortcutKey::KeyK,
+            },
+        };
+
+        assert_eq!(settings.display_label(), "⌘ ⌥ K");
+    }
+
+    #[test]
+    fn modifier_label_order_is_stable() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: true,
+                    shift: true,
+                    option: true,
+                    control: true,
+                },
+                key: ShortcutKey::KeyK,
+            },
+        };
+
+        assert_eq!(settings.display_label(), "⌘ ⇧ ⌥ ⌃ K");
+    }
+
+    #[test]
+    fn combo_converts_to_tauri_shortcut() {
+        let shortcut = ShortcutSettings::default()
+            .to_tauri_shortcut()
+            .expect("shortcut");
+
+        assert!(shortcut.matches(Modifiers::SUPER | Modifiers::SHIFT, Code::Space));
+    }
+
+    #[test]
+    fn frontend_view_includes_settings_and_label() {
+        let view = ShortcutSettings::default().to_frontend();
+
+        assert_eq!(view.settings, ShortcutSettings::default());
+        assert_eq!(view.display_label, "⌘ ⇧ Space");
+    }
+
+    #[derive(Default)]
+    struct FakeShortcutRegistry {
+        active: Option<ShortcutSettings>,
+        fail_next_register: Option<String>,
+        unregistered: Vec<ShortcutSettings>,
+        registered: Vec<ShortcutSettings>,
+    }
+
+    impl ShortcutRegistry for FakeShortcutRegistry {
+        fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+            if let Some(message) = self.fail_next_register.take() {
+                return Err(message);
+            }
+            self.registered.push(settings.clone());
+            self.active = Some(settings.clone());
+            Ok(())
+        }
+
+        fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String> {
+            self.unregistered.push(settings.clone());
+            if self.active.as_ref() == Some(settings) {
+                self.active = None;
+            }
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn apply_shortcut_registers_new_combo_when_no_previous_active() {
+        let mut registry = FakeShortcutRegistry::default();
+        let mut active = None;
+        let settings = ShortcutSettings::default();
+
+        let view = apply_shortcut_settings(&mut registry, &mut active, settings.clone())
+            .expect("apply shortcut");
+
+        assert_eq!(active, Some(settings.clone()));
+        assert_eq!(registry.registered, vec![settings]);
+        assert_eq!(registry.unregistered.len(), 0);
+        assert_eq!(view.display_label, "⌘ ⇧ Space");
+    }
+
+    #[test]
+    fn apply_shortcut_replaces_previous_combo() {
+        let previous = ShortcutSettings::default();
+        let next = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: true,
+                    shift: false,
+                    option: true,
+                    control: false,
+                },
+                key: ShortcutKey::KeyK,
+            },
+        };
+        let mut registry = FakeShortcutRegistry {
+            active: Some(previous.clone()),
+            ..FakeShortcutRegistry::default()
+        };
+        let mut active = Some(previous.clone());
+
+        let view = apply_shortcut_settings(&mut registry, &mut active, next.clone())
+            .expect("apply shortcut");
+
+        assert_eq!(active, Some(next.clone()));
+        assert_eq!(registry.unregistered, vec![previous]);
+        assert_eq!(registry.registered, vec![next]);
+        assert_eq!(view.display_label, "⌘ ⌥ K");
+    }
+
+    #[test]
+    fn apply_shortcut_rolls_back_when_new_registration_fails() {
+        let previous = ShortcutSettings::default();
+        let next = ShortcutSettings {
+            mode: ShortcutMode::Combo,
+            combo: ShortcutCombo {
+                modifiers: ShortcutModifiers {
+                    command: true,
+                    shift: false,
+                    option: true,
+                    control: false,
+                },
+                key: ShortcutKey::KeyK,
+            },
+        };
+        let mut registry = FakeShortcutRegistry {
+            active: Some(previous.clone()),
+            fail_next_register: Some("shortcut is already registered".to_string()),
+            ..FakeShortcutRegistry::default()
+        };
+        let mut active = Some(previous.clone());
+
+        let error = apply_shortcut_settings(&mut registry, &mut active, next)
+            .expect_err("conflict should fail");
+
+        assert!(error.contains("shortcut is already registered"));
+        assert_eq!(active, Some(previous.clone()));
+        assert_eq!(registry.active, Some(previous.clone()));
+        assert_eq!(registry.unregistered, vec![previous.clone()]);
+        assert_eq!(registry.registered, vec![previous]);
+    }
+
+    #[test]
+    fn shortcut_event_payload_matches_frontend_contract() {
+        assert_eq!(RECORD_SHORTCUT_EVENT, "wispergo://record-shortcut");
+        assert_eq!(shortcut_event_payload(ShortcutState::Pressed), "Pressed");
+        assert_eq!(shortcut_event_payload(ShortcutState::Released), "Released");
+    }
+}

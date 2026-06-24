@@ -363,6 +363,33 @@ button:disabled {
   border-right: 1px solid #d9d9d4;
 }
 
+.shortcut-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-panel .shortcut-mode-toggle label {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  border: 2px solid #bdbbb4;
+  border-radius: 14px;
+  background: #f6f5ef;
+  color: #42423d;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.shortcut-mode-toggle input {
+  min-height: auto;
+  width: auto;
+  padding: 0;
+  accent-color: #1d1c31;
+}
+
 .shortcut-current {
   min-height: 64px;
   display: flex;
@@ -409,6 +436,12 @@ button:disabled {
   accent-color: #1d1c31;
 }
 
+.shortcut-combo-editor,
+.shortcut-hold-editor {
+  display: grid;
+  gap: 14px;
+}
+
 button.is-recording-shortcut {
   border-color: #5f4ca0;
   background: #e9e4ff;
@@ -424,6 +457,11 @@ button.is-recording-shortcut {
 
 .shortcut-error {
   color: #8a2f1b;
+  font-weight: 650;
+}
+
+.shortcut-warning {
+  color: #8a5b13;
   font-weight: 650;
 }
 

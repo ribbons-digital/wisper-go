@@ -7,6 +7,7 @@ import type {
   CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
+  ModifierHoldKey,
   ShortcutKey,
   ShortcutSettings,
   ShortcutSettingsView,
@@ -19,13 +20,15 @@ import {
 
 type PermissionRequest = "microphone" | "accessibility";
 
+const DEFAULT_MODIFIER_HOLD = { key: "right_command", holdThresholdMs: 200 } as const;
+
 const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   mode: "combo",
   combo: {
     modifiers: { command: true, shift: true, option: false, control: false },
     key: "space",
   },
-  modifierHold: { key: "right_command", holdThresholdMs: 200 },
+  modifierHold: DEFAULT_MODIFIER_HOLD,
 };
 
 const DEFAULT_SHORTCUT_VIEW: ShortcutSettingsView = {
@@ -38,6 +41,17 @@ const SHORTCUT_MODIFIERS: Array<{ key: keyof ShortcutSettings["combo"]["modifier
   { key: "shift", label: "⇧ Shift" },
   { key: "option", label: "⌥ Option" },
   { key: "control", label: "⌃ Control" },
+];
+
+const MODIFIER_HOLD_KEY_OPTIONS: Array<{ value: ModifierHoldKey; label: string }> = [
+  { value: "left_command", label: "Left Command" },
+  { value: "right_command", label: "Right Command" },
+  { value: "left_option", label: "Left Option" },
+  { value: "right_option", label: "Right Option" },
+  { value: "left_control", label: "Left Control" },
+  { value: "right_control", label: "Right Control" },
+  { value: "left_shift", label: "Left Shift" },
+  { value: "right_shift", label: "Right Shift" },
 ];
 
 const SHORTCUT_KEY_OPTIONS: Array<{ value: ShortcutKey; label: string }> = [
@@ -270,92 +284,156 @@ export function SettingsPanel({
             <h3>Shortcut</h3>
             <span>Key combo</span>
           </div>
+          <div className="shortcut-mode-toggle" role="radiogroup" aria-label="Shortcut mode">
+            <label>
+              <input
+                type="radio"
+                name="shortcut-mode"
+                checked={draftShortcutSettings.mode === "combo"}
+                onChange={() =>
+                  setDraftShortcutSettings((current) => ({ ...current, mode: "combo" }))
+                }
+              />
+              <span>Key combination</span>
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="shortcut-mode"
+                checked={draftShortcutSettings.mode === "modifier_hold"}
+                onChange={() =>
+                  setDraftShortcutSettings((current) => ({
+                    ...current,
+                    mode: "modifier_hold",
+                    modifierHold: current.modifierHold ?? DEFAULT_MODIFIER_HOLD,
+                  }))
+                }
+              />
+              <span>Hold one modifier</span>
+            </label>
+          </div>
           <div className="shortcut-current" aria-label="Current shortcut">
             <SettingsIcon name="keyboard" />
             <strong>{shortcutView.displayLabel}</strong>
           </div>
-          <button
-            ref={shortcutRecordButtonRef}
-            type="button"
-            className={recordingShortcut ? "is-recording-shortcut" : undefined}
-            onClick={() => {
-              setLocalShortcutError(null);
-              setRecordingShortcut(true);
-            }}
-            onBlur={() => setRecordingShortcut(false)}
-            onKeyDown={(event) => {
-              if (!recordingShortcut) return;
-              event.preventDefault();
-              const key = shortcutKeyFromKeyboardEvent(event);
-              if (!key) {
-                setLocalShortcutError("That key is not supported for shortcuts yet.");
-                return;
-              }
-              if (!shortcutHasModifier(event)) {
-                setLocalShortcutError("Choose a key combination with at least one modifier.");
-                return;
-              }
-              setDraftShortcutSettings({
-                mode: "combo",
-                combo: {
-                  modifiers: {
-                    command: event.metaKey,
-                    shift: event.shiftKey,
-                    option: event.altKey,
-                    control: event.ctrlKey,
-                  },
-                  key,
-                },
-                modifierHold: draftShortcutSettings.modifierHold,
-              });
-              setLocalShortcutError(null);
-              setRecordingShortcut(false);
-            }}
-          >
-            {recordingShortcut ? "Press shortcut…" : "Record shortcut"}
-          </button>
-          <div className="shortcut-modifiers" aria-label="Shortcut modifiers">
-            {SHORTCUT_MODIFIERS.map((modifier) => (
-              <label key={modifier.key} className="shortcut-modifier-toggle">
-                <input
-                  type="checkbox"
-                  checked={draftShortcutSettings.combo.modifiers[modifier.key]}
+          {draftShortcutSettings.mode === "combo" ? (
+            <div className="shortcut-combo-editor">
+              <button
+                ref={shortcutRecordButtonRef}
+                type="button"
+                className={recordingShortcut ? "is-recording-shortcut" : undefined}
+                onClick={() => {
+                  setLocalShortcutError(null);
+                  setRecordingShortcut(true);
+                }}
+                onBlur={() => setRecordingShortcut(false)}
+                onKeyDown={(event) => {
+                  if (!recordingShortcut) return;
+                  event.preventDefault();
+                  const key = shortcutKeyFromKeyboardEvent(event);
+                  if (!key) {
+                    setLocalShortcutError("That key is not supported for shortcuts yet.");
+                    return;
+                  }
+                  if (!shortcutHasModifier(event)) {
+                    setLocalShortcutError("Choose a key combination with at least one modifier.");
+                    return;
+                  }
+                  setDraftShortcutSettings({
+                    mode: "combo",
+                    combo: {
+                      modifiers: {
+                        command: event.metaKey,
+                        shift: event.shiftKey,
+                        option: event.altKey,
+                        control: event.ctrlKey,
+                      },
+                      key,
+                    },
+                    modifierHold: draftShortcutSettings.modifierHold,
+                  });
+                  setLocalShortcutError(null);
+                  setRecordingShortcut(false);
+                }}
+              >
+                {recordingShortcut ? "Press shortcut…" : "Record shortcut"}
+              </button>
+              <div className="shortcut-modifiers" aria-label="Shortcut modifiers">
+                {SHORTCUT_MODIFIERS.map((modifier) => (
+                  <label key={modifier.key} className="shortcut-modifier-toggle">
+                    <input
+                      type="checkbox"
+                      checked={draftShortcutSettings.combo.modifiers[modifier.key]}
+                      onChange={(event) =>
+                        setDraftShortcutSettings((current) => ({
+                          ...current,
+                          combo: {
+                            ...current.combo,
+                            modifiers: {
+                              ...current.combo.modifiers,
+                              [modifier.key]: event.target.checked,
+                            },
+                          },
+                        }))
+                      }
+                    />
+                    <span>{modifier.label}</span>
+                  </label>
+                ))}
+              </div>
+              <label className="settings-field">
+                <span>Key</span>
+                <select
+                  value={draftShortcutSettings.combo.key}
                   onChange={(event) =>
                     setDraftShortcutSettings((current) => ({
                       ...current,
-                      combo: {
-                        ...current.combo,
-                        modifiers: {
-                          ...current.combo.modifiers,
-                          [modifier.key]: event.target.checked,
-                        },
+                      combo: { ...current.combo, key: event.target.value as ShortcutKey },
+                    }))
+                  }
+                >
+                  {SHORTCUT_KEY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="settings-note">
+                Choose a modifier-based key combination.
+              </p>
+            </div>
+          ) : null}
+          {draftShortcutSettings.mode === "modifier_hold" ? (
+            <div className="shortcut-hold-editor">
+              <label className="settings-field">
+                <span>Modifier key</span>
+                <select
+                  value={draftShortcutSettings.modifierHold.key}
+                  onChange={(event) =>
+                    setDraftShortcutSettings((current) => ({
+                      ...current,
+                      modifierHold: {
+                        ...current.modifierHold,
+                        key: event.target.value as ModifierHoldKey,
+                        holdThresholdMs: current.modifierHold.holdThresholdMs || 200,
                       },
                     }))
                   }
-                />
-                <span>{modifier.label}</span>
+                >
+                  {MODIFIER_HOLD_KEY_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
               </label>
-            ))}
-          </div>
-          <label className="settings-field">
-            <span>Key</span>
-            <select
-              value={draftShortcutSettings.combo.key}
-              onChange={(event) =>
-                setDraftShortcutSettings((current) => ({
-                  ...current,
-                  combo: { ...current.combo, key: event.target.value as ShortcutKey },
-                }))
-              }
-            >
-              {SHORTCUT_KEY_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <p className="settings-note">
-            Choose a modifier-based key combination. Single modifier-key hold shortcuts are planned separately.
-          </p>
+              <p className="settings-note">
+                Starts when held by itself. Normal shortcuts are ignored.
+              </p>
+              {!accessibility.granted ? (
+                <p className="shortcut-warning" role="status">
+                  Accessibility permission is required before modifier-hold shortcuts can work.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           {localShortcutError || shortcutError ? (
             <p className="shortcut-error" role="status">{localShortcutError ?? shortcutError}</p>
           ) : null}

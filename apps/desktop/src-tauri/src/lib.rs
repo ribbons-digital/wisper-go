@@ -247,7 +247,8 @@ impl ShortcutRegistry for TauriShortcutRegistry<'_> {
             return Ok(());
         }
 
-        let monitor = modifier_hold::ModifierHoldMonitor::start(self.app.clone(), settings.clone())?;
+        let monitor =
+            modifier_hold::ModifierHoldMonitor::start(self.app.clone(), settings.clone())?;
         *self.modifier_monitor = Some(monitor);
         Ok(())
     }

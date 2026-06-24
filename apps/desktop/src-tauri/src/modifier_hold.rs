@@ -128,8 +128,8 @@ impl ModifierHoldMonitor {
     pub fn start(app: AppHandle, settings: ModifierHoldSettings) -> Result<Self, String> {
         use core_foundation::runloop::{kCFRunLoopDefaultMode, CFRunLoop, CFRunLoopRunResult};
         use core_graphics::event::{
-            CallbackResult, CGEventTap, CGEventTapLocation, CGEventTapOptions,
-            CGEventTapPlacement, CGEventType,
+            CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement, CGEventType,
+            CallbackResult,
         };
 
         let (ready_tx, ready_rx) = mpsc::channel::<Result<(), String>>();
@@ -180,7 +180,7 @@ impl ModifierHoldMonitor {
                         let _ = timer_tx.send(TimerCommand::Stop);
                         let _ = timer_join.join();
                         let _ = ready_tx.send(Err(
-                            "Modifier-hold event monitor could not start.".to_string(),
+                            "Modifier-hold event monitor could not start.".to_string()
                         ));
                         return;
                     }

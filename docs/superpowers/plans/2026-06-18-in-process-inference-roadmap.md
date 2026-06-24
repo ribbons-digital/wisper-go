@@ -385,7 +385,8 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
   - Add user-configurable dictation triggers while preserving the default
     `Command + Shift + Space` hold-to-dictate behavior.
   - Planned implementation slices:
-    - R5.1: key-combination customization with conflict-safe save/rollback.
+    - R5.1: key-combination customization with conflict-safe save/rollback 🟡
+      (`docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md`).
     - R5.2: single modifier-key hold-to-dictate, including Right Command for
       keyboards without Right Option.
   - DoD: Settings and recorder copy show the selected shortcut; failed combo

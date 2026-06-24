@@ -380,7 +380,19 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     build, and thin-bundle check pass locally; release workflow remains
     secret-gated until Apple Developer credentials are configured in GitHub.
 
-- **R5 Public README and contributor docs** ⬜
+- **R5 Shortcut customization** 🟡
+  - Spec: `docs/superpowers/specs/2026-06-24-r5-shortcut-customization-design.md`.
+  - Add user-configurable dictation triggers while preserving the default
+    `Command + Shift + Space` hold-to-dictate behavior.
+  - Planned implementation slices:
+    - R5.1: key-combination customization with conflict-safe save/rollback.
+    - R5.2: single modifier-key hold-to-dictate, including Right Command for
+      keyboards without Right Option.
+  - DoD: Settings and recorder copy show the selected shortcut; failed combo
+    registration keeps the previous working shortcut; modifier-hold mode avoids
+    normal shortcut interference with threshold/cancel-on-chord behavior.
+
+- **R6 Public README and contributor docs** ⬜
   - Split end-user install/setup docs from developer/contributor workflow.
   - DoD: README and release docs are usable by non-developer downloaders and
     source contributors.

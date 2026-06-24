@@ -9,7 +9,7 @@ describe("FloatingRecorder", () => {
     expect(screen.getByRole("region", { name: "Recorder" })).toBeInTheDocument();
     expect(screen.getByLabelText("Wispergo idle handle")).toBeInTheDocument();
     expect(screen.queryByText("Ready")).not.toBeInTheDocument();
-    expect(screen.queryByText("hold Command + Shift + Space")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hold Command + Shift + Space to dictate")).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
@@ -17,8 +17,14 @@ describe("FloatingRecorder", () => {
     render(<FloatingRecorder status="idle" expanded />);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent("Ready");
-    expect(screen.getByText("hold Command + Shift + Space")).toBeInTheDocument();
+    expect(screen.getByText("Hold Command + Shift + Space to dictate")).toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("renders modifier-hold prompt without duplicate hold wording", () => {
+    render(<FloatingRecorder status="idle" expanded shortcutLabel="Hold Right ⌘" />);
+
+    expect(screen.getByText("Hold Right ⌘ to dictate")).toBeInTheDocument();
   });
 
   it("renders a standalone waveform without visible labels while actively recording", () => {

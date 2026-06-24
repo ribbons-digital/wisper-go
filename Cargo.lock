@@ -6350,6 +6350,7 @@ dependencies = [
  "block2",
  "core-foundation",
  "core-foundation-sys",
+ "core-graphics",
  "cpal",
  "enigo",
  "macos-accessibility-client",

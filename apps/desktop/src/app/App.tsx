@@ -57,6 +57,7 @@ const DEFAULT_SHORTCUT_VIEW: ShortcutSettingsView = {
       modifiers: { command: true, shift: true, option: false, control: false },
       key: "space",
     },
+    modifierHold: { key: "right_command", holdThresholdMs: 200 },
   },
   displayLabel: "⌘ ⇧ Space",
 };

@@ -282,6 +282,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: false, option: true, control: false },
         key: "keyK",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -301,6 +302,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: false, option: true, control: false },
         key: "keyK",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -320,6 +322,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: true, option: false, control: false },
         key: "space",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -346,6 +349,7 @@ describe("SettingsPanel", () => {
             modifiers: { command: true, shift: false, option: true, control: false },
             key: "keyK",
           },
+          modifierHold: { key: "right_command", holdThresholdMs: 200 },
         },
         displayLabel: "⌘ ⌥ K",
       },
@@ -359,7 +363,64 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: true, option: false, control: false },
         key: "space",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
+  });
+
+  it("shows modifier-hold controls when modifier mode is selected", async () => {
+    const user = userEvent.setup();
+    renderSettingsPanel();
+
+    await user.click(screen.getByRole("radio", { name: "Hold one modifier" }));
+
+    expect(screen.getByLabelText("Modifier key")).toBeInTheDocument();
+    expect(screen.getByText("Starts when held by itself. Normal shortcuts are ignored.")).toBeInTheDocument();
+  });
+
+  it("saves modifier-hold shortcut settings", async () => {
+    const user = userEvent.setup();
+    const onShortcutSettingsSave = vi.fn();
+    renderSettingsPanel({ onShortcutSettingsSave });
+
+    await user.click(screen.getByRole("radio", { name: "Hold one modifier" }));
+    await user.selectOptions(screen.getByLabelText("Modifier key"), "right_command");
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+
+    expect(onShortcutSettingsSave).toHaveBeenCalledWith({
+      mode: "modifier_hold",
+      combo: {
+        modifiers: { command: true, shift: true, option: false, control: false },
+        key: "space",
+      },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
+    });
+  });
+
+  it("warns that modifier-hold requires Accessibility when missing", async () => {
+    const user = userEvent.setup();
+    renderSettingsPanel({ accessibility: { granted: false, canPrompt: true } });
+
+    await user.click(screen.getByRole("radio", { name: "Hold one modifier" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Accessibility permission is required");
+  });
+
+  it("renders saved modifier-hold label in shortcut card", () => {
+    renderSettingsPanel({
+      shortcutView: {
+        settings: {
+          mode: "modifier_hold",
+          combo: {
+            modifiers: { command: true, shift: true, option: false, control: false },
+            key: "space",
+          },
+          modifierHold: { key: "right_command", holdThresholdMs: 200 },
+        },
+        displayLabel: "Hold Right ⌘",
+      },
+    });
+
+    expect(screen.getAllByText("Hold Right ⌘").length).toBeGreaterThan(0);
   });
 
   it("renders shortcut save errors", () => {

@@ -35,7 +35,22 @@ export type LocalModelSettings = {
   cleanupMode: CleanupMode;
 };
 
-export type ShortcutMode = "combo";
+export type ShortcutMode = "combo" | "modifier_hold";
+
+export type ModifierHoldKey =
+  | "left_command"
+  | "right_command"
+  | "left_option"
+  | "right_option"
+  | "left_control"
+  | "right_control"
+  | "left_shift"
+  | "right_shift";
+
+export type ModifierHoldSettings = {
+  key: ModifierHoldKey;
+  holdThresholdMs: number;
+};
 
 export type ShortcutKey =
   | "space"
@@ -109,6 +124,7 @@ export type ShortcutCombo = {
 export type ShortcutSettings = {
   mode: ShortcutMode;
   combo: ShortcutCombo;
+  modifierHold: ModifierHoldSettings;
 };
 
 export type ShortcutSettingsView = {

@@ -267,7 +267,8 @@ impl AppState {
 mod tests {
     use super::{AppState, CleanupMode, RecognitionLanguage, RecordingSession, RecordingStatus};
     use crate::shortcut::{
-        ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers, ShortcutSettings,
+        ModifierHoldSettings, ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers,
+        ShortcutSettings,
     };
 
     #[test]
@@ -323,6 +324,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyK,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
 
         state.set_shortcut_settings(settings.clone());

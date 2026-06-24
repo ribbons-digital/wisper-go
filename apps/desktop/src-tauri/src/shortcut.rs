@@ -1,6 +1,7 @@
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 pub const RECORD_SHORTCUT_EVENT: &str = "wispergo://record-shortcut";
+pub const DEFAULT_MODIFIER_HOLD_THRESHOLD_MS: u64 = 200;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -9,6 +10,8 @@ pub struct ShortcutSettings {
     pub mode: ShortcutMode,
     #[serde(default)]
     pub combo: ShortcutCombo,
+    #[serde(default)]
+    pub modifier_hold: ModifierHoldSettings,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
@@ -16,6 +19,7 @@ pub struct ShortcutSettings {
 pub enum ShortcutMode {
     #[default]
     Combo,
+    ModifierHold,
 }
 
 impl<'de> serde::Deserialize<'de> for ShortcutMode {
@@ -26,9 +30,57 @@ impl<'de> serde::Deserialize<'de> for ShortcutMode {
         let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
         Ok(match value.unwrap_or_default().as_str() {
             "combo" => Self::Combo,
+            "modifier_hold" => Self::ModifierHold,
             _ => Self::Combo,
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModifierHoldSettings {
+    #[serde(default)]
+    pub key: ModifierHoldKey,
+    #[serde(default = "default_modifier_hold_threshold_ms")]
+    pub hold_threshold_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModifierHoldKey {
+    LeftCommand,
+    #[default]
+    RightCommand,
+    LeftOption,
+    RightOption,
+    LeftControl,
+    RightControl,
+    LeftShift,
+    RightShift,
+}
+
+impl<'de> serde::Deserialize<'de> for ModifierHoldKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = <Option<String> as serde::Deserialize>::deserialize(deserializer)?;
+        Ok(match value.unwrap_or_default().as_str() {
+            "left_command" => Self::LeftCommand,
+            "right_command" => Self::RightCommand,
+            "left_option" => Self::LeftOption,
+            "right_option" => Self::RightOption,
+            "left_control" => Self::LeftControl,
+            "right_control" => Self::RightControl,
+            "left_shift" => Self::LeftShift,
+            "right_shift" => Self::RightShift,
+            _ => Self::RightCommand,
+        })
+    }
+}
+
+fn default_modifier_hold_threshold_ms() -> u64 {
+    DEFAULT_MODIFIER_HOLD_THRESHOLD_MS
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -151,11 +203,21 @@ impl Default for ShortcutCombo {
     }
 }
 
+impl Default for ModifierHoldSettings {
+    fn default() -> Self {
+        Self {
+            key: ModifierHoldKey::RightCommand,
+            hold_threshold_ms: DEFAULT_MODIFIER_HOLD_THRESHOLD_MS,
+        }
+    }
+}
+
 impl Default for ShortcutSettings {
     fn default() -> Self {
         Self {
             mode: ShortcutMode::Combo,
             combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings::default(),
         }
     }
 }
@@ -170,11 +232,21 @@ impl ShortcutSettings {
                     self
                 }
             }
+            ShortcutMode::ModifierHold => {
+                let mut settings = self;
+                if settings.modifier_hold.hold_threshold_ms == 0 {
+                    settings.modifier_hold.hold_threshold_ms = DEFAULT_MODIFIER_HOLD_THRESHOLD_MS;
+                }
+                settings
+            }
         }
     }
 
     pub fn display_label(&self) -> String {
-        self.combo.display_label()
+        match self.mode {
+            ShortcutMode::Combo => self.combo.display_label(),
+            ShortcutMode::ModifierHold => self.modifier_hold.display_label(),
+        }
     }
 
     pub fn to_frontend(&self) -> ShortcutSettingsView {
@@ -186,7 +258,13 @@ impl ShortcutSettings {
     }
 
     pub fn to_tauri_shortcut(&self) -> Result<Shortcut, String> {
-        self.combo.to_tauri_shortcut()
+        match self.mode {
+            ShortcutMode::Combo => self.combo.to_tauri_shortcut(),
+            ShortcutMode::ModifierHold => Err(
+                "Modifier-hold shortcuts are monitored instead of registered as key combinations."
+                    .to_string(),
+            ),
+        }
     }
 }
 
@@ -227,6 +305,27 @@ impl ShortcutModifiers {
             parts.push("⌃");
         }
         parts
+    }
+}
+
+impl ModifierHoldSettings {
+    pub fn display_label(&self) -> String {
+        format!("Hold {}", self.key.label())
+    }
+}
+
+impl ModifierHoldKey {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::LeftCommand => "Left ⌘",
+            Self::RightCommand => "Right ⌘",
+            Self::LeftOption => "Left ⌥",
+            Self::RightOption => "Right ⌥",
+            Self::LeftControl => "Left ⌃",
+            Self::RightControl => "Right ⌃",
+            Self::LeftShift => "Left ⇧",
+            Self::RightShift => "Right ⇧",
+        }
     }
 }
 
@@ -513,6 +612,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyA,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
 
         assert_eq!(settings.normalized(), ShortcutSettings::default());
@@ -531,6 +631,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyK,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
 
         assert_eq!(settings.display_label(), "⌘ ⌥ K");
@@ -549,6 +650,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyK,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
 
         assert_eq!(settings.display_label(), "⌘ ⇧ ⌥ ⌃ K");
@@ -569,6 +671,86 @@ mod tests {
 
         assert_eq!(view.settings, ShortcutSettings::default());
         assert_eq!(view.display_label, "⌘ ⇧ Space");
+    }
+
+    #[test]
+    fn modifier_hold_settings_label_uses_physical_key_name() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::RightCommand,
+                hold_threshold_ms: DEFAULT_MODIFIER_HOLD_THRESHOLD_MS,
+            },
+        };
+
+        assert_eq!(settings.display_label(), "Hold Right ⌘");
+        assert_eq!(settings.to_frontend().display_label, "Hold Right ⌘");
+    }
+
+    #[test]
+    fn modifier_hold_settings_serialize_as_snake_case_mode_and_key() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::LeftOption,
+                hold_threshold_ms: 200,
+            },
+        };
+
+        let json = serde_json::to_string(&settings).expect("serialize shortcut settings");
+        assert!(json.contains("\"mode\":\"modifier_hold\""));
+        assert!(json.contains("\"key\":\"left_option\""));
+        assert!(json.contains("\"holdThresholdMs\":200"));
+
+        let parsed = serde_json::from_str::<ShortcutSettings>(&json).expect("deserialize settings");
+        assert_eq!(parsed, settings);
+    }
+
+    #[test]
+    fn missing_modifier_hold_fields_default_to_right_command_threshold() {
+        let settings = serde_json::from_str::<ShortcutSettings>(
+            r#"{"mode":"modifier_hold","modifierHold":{}}"#,
+        )
+        .expect("deserialize modifier hold defaults");
+
+        assert_eq!(settings.mode, ShortcutMode::ModifierHold);
+        assert_eq!(settings.modifier_hold.key, ModifierHoldKey::RightCommand);
+        assert_eq!(
+            settings.modifier_hold.hold_threshold_ms,
+            DEFAULT_MODIFIER_HOLD_THRESHOLD_MS
+        );
+    }
+
+    #[test]
+    fn invalid_modifier_hold_threshold_normalizes_to_default_threshold() {
+        let settings = ShortcutSettings {
+            mode: ShortcutMode::ModifierHold,
+            combo: ShortcutCombo::default(),
+            modifier_hold: ModifierHoldSettings {
+                key: ModifierHoldKey::LeftCommand,
+                hold_threshold_ms: 0,
+            },
+        }
+        .normalized();
+
+        assert_eq!(settings.mode, ShortcutMode::ModifierHold);
+        assert_eq!(settings.modifier_hold.key, ModifierHoldKey::LeftCommand);
+        assert_eq!(
+            settings.modifier_hold.hold_threshold_ms,
+            DEFAULT_MODIFIER_HOLD_THRESHOLD_MS
+        );
+    }
+
+    #[test]
+    fn unknown_shortcut_mode_deserializes_to_default_combo() {
+        let settings = serde_json::from_str::<ShortcutSettings>(
+            r#"{"mode":"future_mode","modifierHold":{"key":"right_command"}}"#,
+        )
+        .expect("deserialize unknown mode");
+
+        assert_eq!(settings.normalized(), ShortcutSettings::default());
     }
 
     #[derive(Default)]
@@ -627,6 +809,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyK,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
         let mut registry = FakeShortcutRegistry {
             active: Some(previous.clone()),
@@ -657,6 +840,7 @@ mod tests {
                 },
                 key: ShortcutKey::KeyK,
             },
+            modifier_hold: ModifierHoldSettings::default(),
         };
         let mut registry = FakeShortcutRegistry {
             active: Some(previous.clone()),

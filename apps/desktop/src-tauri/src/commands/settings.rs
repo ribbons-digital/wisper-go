@@ -784,7 +784,8 @@ mod tests {
         InferenceRuntimeState, ManagedInferenceEngine,
     };
     use crate::shortcut::{
-        ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers, ShortcutSettings,
+        ModifierHoldSettings, ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers,
+        ShortcutSettings,
     };
     use crate::state::RecognitionLanguage;
     use wispergo_core::asset_manifest::AssetRole;
@@ -823,6 +824,7 @@ mod tests {
                     },
                     key: ShortcutKey::KeyK,
                 },
+                modifier_hold: ModifierHoldSettings::default(),
             },
         };
 

@@ -14,12 +14,14 @@ import {
   recordingStatus,
   requestMicrophoneAccess,
   requestAccessibility,
+  shortcutSettings,
   selectedMicrophoneId,
   setLanguageMenuOpen,
   setFloatingChromeReason,
   setMicrophoneDevice,
   setLocalModelSettings,
   setRecognitionLanguage,
+  setShortcutSettings,
   startRecording,
   stopRecording,
   type FloatingChromeReason,
@@ -31,6 +33,8 @@ import type {
   LocalModelSettings,
   MicrophoneStatus,
   RecognitionLanguage,
+  ShortcutSettings,
+  ShortcutSettingsView,
   StopRecordingOutput,
 } from "../types/pipeline";
 
@@ -45,6 +49,17 @@ const RECOGNITION_LANGUAGES = [
   { value: "en", label: "English" },
   { value: "zh", label: "Chinese / Mixed" }
 ] as const;
+
+const DEFAULT_SHORTCUT_VIEW: ShortcutSettingsView = {
+  settings: {
+    mode: "combo",
+    combo: {
+      modifiers: { command: true, shift: true, option: false, control: false },
+      key: "space",
+    },
+  },
+  displayLabel: "⌘ ⇧ Space",
+};
 
 export function App() {
   const surface = appSurface();
@@ -69,6 +84,8 @@ export function App() {
     cleanupMode: "punctuation_only",
   });
   const [modelSettingsLoaded, setModelSettingsLoaded] = useState(false);
+  const [shortcutView, setShortcutView] = useState<ShortcutSettingsView>(DEFAULT_SHORTCUT_VIEW);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [cleanupRuntime, setCleanupRuntime] = useState<CleanupRuntimeStatus | null>(null);
   const [languageMenuOpen, setLanguageMenuOpenState] = useState(false);
   const [languageNativeHovered, setLanguageNativeHovered] = useState(false);
@@ -87,6 +104,7 @@ export function App() {
   const postInsertGraceActiveRef = useRef(false);
   const holdDownRef = useRef(false);
   const queuedStopAfterStartRef = useRef(false);
+  const shortcutViewRef = useRef(DEFAULT_SHORTCUT_VIEW);
 
   useEffect(() => {
     if (isRecorderSurface || isLanguageSurface || !modelSettingsLoaded) {
@@ -257,7 +275,25 @@ export function App() {
           applyStatus("idle");
         }
       });
-    if (isRecorderSurface || isLanguageSurface) {
+    if (isLanguageSurface) {
+      return () => {
+        mounted = false;
+      };
+    }
+    void shortcutSettings()
+      .then((view) => {
+        if (mounted) {
+          shortcutViewRef.current = view;
+          setShortcutView(view);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          shortcutViewRef.current = DEFAULT_SHORTCUT_VIEW;
+          setShortcutView(DEFAULT_SHORTCUT_VIEW);
+        }
+      });
+    if (isRecorderSurface) {
       return () => {
         mounted = false;
       };
@@ -601,6 +637,18 @@ export function App() {
     });
   }
 
+  function handleShortcutSettingsSave(settings: ShortcutSettings) {
+    setShortcutError(null);
+    void setShortcutSettings(settings)
+      .then((view) => {
+        shortcutViewRef.current = view;
+        setShortcutView(view);
+      })
+      .catch((err: unknown) => {
+        setShortcutError(errorMessage(err));
+      });
+  }
+
   const recorderSurfaceStateClass = floatingChromeExpanded
     ? "is-floating-expanded"
     : "is-floating-collapsed";
@@ -620,6 +668,7 @@ export function App() {
           busy={pending}
           expanded={floatingChromeExpanded}
           setupNeeded={recorderSetupNeeded}
+          shortcutLabel={shortcutView.displayLabel}
         />
       ) : null}
       {isLanguageSurface ? (
@@ -660,8 +709,11 @@ export function App() {
           microphone={microphone}
           accessibility={accessibility}
           modelSettings={modelSettings}
+          shortcutView={shortcutView}
+          shortcutError={shortcutError}
           cleanupRuntime={cleanupRuntime}
           requestingPermission={requestingPermission}
+          onShortcutSettingsSave={handleShortcutSettingsSave}
           onMicrophoneChange={(deviceId) => {
             setSelectedMic(deviceId);
             void setMicrophoneDevice(deviceId).catch((err: unknown) => {

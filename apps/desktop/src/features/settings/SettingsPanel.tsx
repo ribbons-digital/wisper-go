@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type {
   AccessibilityStatus,
@@ -7,6 +7,9 @@ import type {
   CleanupRuntimeStatus,
   LocalModelSettings,
   MicrophoneStatus,
+  ShortcutKey,
+  ShortcutSettings,
+  ShortcutSettingsView,
 } from "../../types/pipeline";
 import {
   ASSET_DOWNLOAD_EVENT,
@@ -16,6 +19,62 @@ import {
 
 type PermissionRequest = "microphone" | "accessibility";
 
+const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
+  mode: "combo",
+  combo: {
+    modifiers: { command: true, shift: true, option: false, control: false },
+    key: "space",
+  },
+};
+
+const DEFAULT_SHORTCUT_VIEW: ShortcutSettingsView = {
+  settings: DEFAULT_SHORTCUT_SETTINGS,
+  displayLabel: "⌘ ⇧ Space",
+};
+
+const SHORTCUT_MODIFIERS: Array<{ key: keyof ShortcutSettings["combo"]["modifiers"]; label: string }> = [
+  { key: "command", label: "⌘ Command" },
+  { key: "shift", label: "⇧ Shift" },
+  { key: "option", label: "⌥ Option" },
+  { key: "control", label: "⌃ Control" },
+];
+
+const SHORTCUT_KEY_OPTIONS: Array<{ value: ShortcutKey; label: string }> = [
+  { value: "space", label: "Space" },
+  { value: "enter", label: "Return" },
+  { value: "escape", label: "Escape" },
+  { value: "tab", label: "Tab" },
+  { value: "backquote", label: "`" },
+  { value: "minus", label: "-" },
+  { value: "equal", label: "=" },
+  { value: "bracketLeft", label: "[" },
+  { value: "bracketRight", label: "]" },
+  { value: "backslash", label: "\\" },
+  { value: "semicolon", label: ";" },
+  { value: "quote", label: "'" },
+  { value: "comma", label: "," },
+  { value: "period", label: "." },
+  { value: "slash", label: "/" },
+  { value: "arrowUp", label: "↑" },
+  { value: "arrowDown", label: "↓" },
+  { value: "arrowLeft", label: "←" },
+  { value: "arrowRight", label: "→" },
+  { value: "digit0", label: "0" },
+  { value: "digit1", label: "1" },
+  { value: "digit2", label: "2" },
+  { value: "digit3", label: "3" },
+  { value: "digit4", label: "4" },
+  { value: "digit5", label: "5" },
+  { value: "digit6", label: "6" },
+  { value: "digit7", label: "7" },
+  { value: "digit8", label: "8" },
+  { value: "digit9", label: "9" },
+  ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => ({
+    value: `key${letter}` as ShortcutKey,
+    label: letter,
+  })),
+];
+
 type Props = {
   fallbackPolicy: string;
   microphones: AudioInputDevice[];
@@ -23,8 +82,11 @@ type Props = {
   microphone: MicrophoneStatus;
   accessibility: AccessibilityStatus;
   modelSettings: LocalModelSettings;
+  shortcutView?: ShortcutSettingsView;
+  shortcutError?: string | null;
   cleanupRuntime?: CleanupRuntimeStatus | null;
   requestingPermission?: PermissionRequest | null;
+  onShortcutSettingsSave?: (settings: ShortcutSettings) => void;
   onMicrophoneChange: (deviceId: string) => void;
   onRefreshMicrophones: () => void;
   onRefreshAccessibility: () => void;
@@ -39,8 +101,11 @@ export function SettingsPanel({
   microphone,
   accessibility,
   modelSettings,
+  shortcutView = DEFAULT_SHORTCUT_VIEW,
+  shortcutError = null,
   cleanupRuntime = null,
   requestingPermission = null,
+  onShortcutSettingsSave = () => undefined,
   onMicrophoneChange,
   onRefreshMicrophones,
   onRefreshAccessibility,
@@ -49,6 +114,10 @@ export function SettingsPanel({
   onModelSettingsSave,
 }: Props) {
   const [draftModelSettings, setDraftModelSettings] = useState(modelSettings);
+  const [draftShortcutSettings, setDraftShortcutSettings] = useState(shortcutView.settings);
+  const [recordingShortcut, setRecordingShortcut] = useState(false);
+  const [localShortcutError, setLocalShortcutError] = useState<string | null>(null);
+  const shortcutRecordButtonRef = useRef<HTMLButtonElement | null>(null);
   const [assetStatus, setAssetStatus] = useState<AssetDownloadStatus | null>(null);
   const [downloadingAssets, setDownloadingAssets] = useState(false);
   const cleanupEnabled = draftModelSettings.cleanupMode !== "off";
@@ -57,6 +126,16 @@ export function SettingsPanel({
   useEffect(() => {
     setDraftModelSettings(modelSettings);
   }, [modelSettings]);
+
+  useEffect(() => {
+    setDraftShortcutSettings(shortcutView.settings);
+  }, [shortcutView]);
+
+  useEffect(() => {
+    if (recordingShortcut) {
+      shortcutRecordButtonRef.current?.focus();
+    }
+  }, [recordingShortcut]);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,7 +184,7 @@ export function SettingsPanel({
           <div className="settings-hero-facts" aria-label="Setup summary">
             <span><SettingsIcon name="microphone" />{microphone.granted ? "Microphone granted" : "Microphone missing"}</span>
             <span><SettingsIcon name="accessibility" />{accessibility.granted ? "Accessibility granted" : "Accessibility missing"}</span>
-            <span><SettingsIcon name="keyboard" />⌘ ⇧ Space</span>
+            <span><SettingsIcon name="keyboard" />{shortcutView.displayLabel}</span>
           </div>
         </div>
         <strong className={setup.ready ? "settings-status is-ready" : "settings-status needs-setup"}>
@@ -183,6 +262,119 @@ export function SettingsPanel({
             <SettingsIcon name="refresh" />
             Refresh devices
           </button>
+        </section>
+
+        <section className="settings-card shortcut-settings" aria-label="Shortcut preferences">
+          <div className="settings-card-heading">
+            <h3>Shortcut</h3>
+            <span>Key combo</span>
+          </div>
+          <div className="shortcut-current" aria-label="Current shortcut">
+            <SettingsIcon name="keyboard" />
+            <strong>{shortcutView.displayLabel}</strong>
+          </div>
+          <button
+            ref={shortcutRecordButtonRef}
+            type="button"
+            className={recordingShortcut ? "is-recording-shortcut" : undefined}
+            onClick={() => {
+              setLocalShortcutError(null);
+              setRecordingShortcut(true);
+            }}
+            onBlur={() => setRecordingShortcut(false)}
+            onKeyDown={(event) => {
+              if (!recordingShortcut) return;
+              event.preventDefault();
+              const key = shortcutKeyFromKeyboardEvent(event);
+              if (!key) {
+                setLocalShortcutError("That key is not supported for shortcuts yet.");
+                return;
+              }
+              if (!shortcutHasModifier(event)) {
+                setLocalShortcutError("Choose a key combination with at least one modifier.");
+                return;
+              }
+              setDraftShortcutSettings({
+                mode: "combo",
+                combo: {
+                  modifiers: {
+                    command: event.metaKey,
+                    shift: event.shiftKey,
+                    option: event.altKey,
+                    control: event.ctrlKey,
+                  },
+                  key,
+                },
+              });
+              setLocalShortcutError(null);
+              setRecordingShortcut(false);
+            }}
+          >
+            {recordingShortcut ? "Press shortcut…" : "Record shortcut"}
+          </button>
+          <div className="shortcut-modifiers" aria-label="Shortcut modifiers">
+            {SHORTCUT_MODIFIERS.map((modifier) => (
+              <label key={modifier.key} className="shortcut-modifier-toggle">
+                <input
+                  type="checkbox"
+                  checked={draftShortcutSettings.combo.modifiers[modifier.key]}
+                  onChange={(event) =>
+                    setDraftShortcutSettings((current) => ({
+                      ...current,
+                      combo: {
+                        ...current.combo,
+                        modifiers: {
+                          ...current.combo.modifiers,
+                          [modifier.key]: event.target.checked,
+                        },
+                      },
+                    }))
+                  }
+                />
+                <span>{modifier.label}</span>
+              </label>
+            ))}
+          </div>
+          <label className="settings-field">
+            <span>Key</span>
+            <select
+              value={draftShortcutSettings.combo.key}
+              onChange={(event) =>
+                setDraftShortcutSettings((current) => ({
+                  ...current,
+                  combo: { ...current.combo, key: event.target.value as ShortcutKey },
+                }))
+              }
+            >
+              {SHORTCUT_KEY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <p className="settings-note">
+            Choose a modifier-based key combination. Single modifier-key hold shortcuts are planned separately.
+          </p>
+          {localShortcutError || shortcutError ? (
+            <p className="shortcut-error" role="status">{localShortcutError ?? shortcutError}</p>
+          ) : null}
+          <div className="shortcut-actions">
+            <button
+              className="settings-primary-action"
+              type="button"
+              onClick={() => {
+                setLocalShortcutError(null);
+                onShortcutSettingsSave(draftShortcutSettings);
+              }}
+            >
+              Save shortcut
+            </button>
+            <button
+              type="button"
+              onClick={() => onShortcutSettingsSave(DEFAULT_SHORTCUT_SETTINGS)}
+            >
+              Reset to default
+            </button>
+          </div>
         </section>
 
         <section className="settings-card model-settings" aria-label="Dictation preferences">
@@ -287,6 +479,36 @@ function modelSetupStatus(status: AssetDownloadStatus | null): SetupItemStatus {
   if (status.state === "missing") return "Needs download";
   if (status.state === "downloading") return "Downloading";
   return "Failed";
+}
+
+function shortcutHasModifier(event: KeyboardEvent) {
+  return event.metaKey || event.shiftKey || event.altKey || event.ctrlKey;
+}
+
+function shortcutKeyFromKeyboardEvent(event: KeyboardEvent): ShortcutKey | null {
+  const { code } = event;
+  if (code === "Space") return "space";
+  if (code === "Enter" || code === "NumpadEnter") return "enter";
+  if (code === "Escape") return "escape";
+  if (code === "Tab") return "tab";
+  if (code === "Backquote") return "backquote";
+  if (code === "Minus") return "minus";
+  if (code === "Equal") return "equal";
+  if (code === "BracketLeft") return "bracketLeft";
+  if (code === "BracketRight") return "bracketRight";
+  if (code === "Backslash") return "backslash";
+  if (code === "Semicolon") return "semicolon";
+  if (code === "Quote") return "quote";
+  if (code === "Comma") return "comma";
+  if (code === "Period") return "period";
+  if (code === "Slash") return "slash";
+  if (code === "ArrowUp") return "arrowUp";
+  if (code === "ArrowDown") return "arrowDown";
+  if (code === "ArrowLeft") return "arrowLeft";
+  if (code === "ArrowRight") return "arrowRight";
+  if (/^Digit\d$/.test(code)) return code.replace("Digit", "digit") as ShortcutKey;
+  if (/^Key[A-Z]$/.test(code)) return code.replace("Key", "key") as ShortcutKey;
+  return null;
 }
 
 type SettingsIconName = "accessibility" | "check" | "chevron" | "chip" | "keyboard" | "microphone" | "refresh";

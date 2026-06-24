@@ -21,6 +21,7 @@ use crate::inference::manager::{
     InferenceRuntimeStatus,
 };
 use crate::platform::macos::{self, AccessibilityStatus, MicrophoneStatus};
+use crate::shortcut::{ShortcutSettings, ShortcutSettingsView};
 use crate::state::{AppState, CleanupMode, LocalModelSettings, RecognitionLanguage};
 
 const SETTINGS_FILE_NAME: &str = "settings.json";
@@ -40,7 +41,10 @@ pub struct OllamaSetupStatus {
 #[derive(Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PersistedSettings {
+    #[serde(default)]
     local_model: LocalModelSettings,
+    #[serde(default)]
+    shortcut: ShortcutSettings,
 }
 
 #[tauri::command]
@@ -469,7 +473,7 @@ pub async fn apply_local_model_settings(
     }
 
     state.set_local_model_settings(settings.clone());
-    save_persisted_settings(&app, &settings)?;
+    save_persisted_settings(&app, &settings, &state.shortcut_settings())?;
     app.emit(
         RECOGNITION_LANGUAGE_CHANGED_EVENT,
         settings.recognition_language,
@@ -496,6 +500,35 @@ pub fn recognition_language(state: State<'_, AppState>) -> RecognitionLanguage {
 }
 
 #[tauri::command]
+pub fn shortcut_settings(state: State<'_, AppState>) -> ShortcutSettingsView {
+    state.shortcut_settings().to_frontend()
+}
+
+#[tauri::command]
+pub fn set_shortcut_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: ShortcutSettings,
+) -> Result<ShortcutSettingsView, String> {
+    let previous = state.shortcut_settings();
+    let settings = settings.normalized();
+    let view = crate::apply_shortcut_settings_for_app(&app, settings.clone())?;
+    state.set_shortcut_settings(settings);
+
+    if let Err(save_error) = save_persisted_settings(
+        &app,
+        &state.local_model_settings(),
+        &state.shortcut_settings(),
+    ) {
+        let _ = crate::apply_shortcut_settings_for_app(&app, previous.clone());
+        state.set_shortcut_settings(previous);
+        return Err(format!("Shortcut could not be saved: {save_error}"));
+    }
+
+    Ok(view)
+}
+
+#[tauri::command]
 pub fn set_recognition_language(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -505,7 +538,7 @@ pub fn set_recognition_language(
     let mut settings = state.local_model_settings();
     settings.recognition_language = language;
     state.set_local_model_settings(settings.clone());
-    save_persisted_settings(&app, &settings)?;
+    save_persisted_settings(&app, &settings, &state.shortcut_settings())?;
     app.emit(RECOGNITION_LANGUAGE_CHANGED_EVENT, language)
         .map_err(|err| err.to_string())?;
     let manifest = load_bundled_manifest(&app);
@@ -536,21 +569,22 @@ pub fn load_persisted_settings(app: &AppHandle, state: &AppState) -> Result<(), 
     }
 
     let content = fs::read_to_string(path).map_err(|err| err.to_string())?;
-    let settings = serde_json::from_str::<PersistedSettings>(&content)
-        .map_err(|err| err.to_string())?
-        .local_model
-        .normalized();
-    state.set_local_model_settings(settings);
+    let persisted =
+        serde_json::from_str::<PersistedSettings>(&content).map_err(|err| err.to_string())?;
+    state.set_local_model_settings(persisted.local_model.normalized());
+    state.set_shortcut_settings(persisted.shortcut.normalized());
     Ok(())
 }
 
 fn save_persisted_settings(
     app: &AppHandle,
     local_model: &LocalModelSettings,
+    shortcut: &ShortcutSettings,
 ) -> Result<(), String> {
     let path = settings_file_path(app)?;
     let persisted = PersistedSettings {
         local_model: local_model.clone(),
+        shortcut: shortcut.clone().normalized(),
     };
     let content = serde_json::to_string_pretty(&persisted).map_err(|err| err.to_string())?;
     fs::write(path, content).map_err(|err| err.to_string())
@@ -742,17 +776,65 @@ mod tests {
 
     use super::{
         managed_cleanup_runtime_enabled_for_backend, ollama_model_installed, CleanupMode,
-        LocalModelSettings, OllamaSetupStatus,
+        LocalModelSettings, OllamaSetupStatus, PersistedSettings,
     };
     use crate::inference::manager::{
         AsrEngineConfig, AsrInferenceOutput, AsrInferenceRequest, CleanupEngineConfig,
         CleanupInferenceOutput, CleanupInferenceRequest, InferenceManager, InferenceManagerError,
         InferenceRuntimeState, ManagedInferenceEngine,
     };
+    use crate::shortcut::{
+        ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers, ShortcutSettings,
+    };
     use crate::state::RecognitionLanguage;
     use wispergo_core::asset_manifest::AssetRole;
     use wispergo_core::asset_storage::AssetStorage;
     use wispergo_core::domain::{PipelineResult, ProviderSource};
+
+    #[test]
+    fn persisted_settings_default_missing_shortcut_to_command_shift_space() {
+        let persisted = serde_json::from_str::<PersistedSettings>(
+            r#"{
+              "localModel": {
+                "asrModelId": "medium",
+                "recognitionLanguage": "auto",
+                "cleanupMode": "punctuation_only"
+              }
+            }"#,
+        )
+        .expect("persisted settings should parse");
+
+        assert_eq!(persisted.local_model, LocalModelSettings::default());
+        assert_eq!(persisted.shortcut, ShortcutSettings::default());
+    }
+
+    #[test]
+    fn persisted_settings_round_trip_shortcut() {
+        let persisted = PersistedSettings {
+            local_model: LocalModelSettings::default(),
+            shortcut: ShortcutSettings {
+                mode: ShortcutMode::Combo,
+                combo: ShortcutCombo {
+                    modifiers: ShortcutModifiers {
+                        command: true,
+                        shift: false,
+                        option: true,
+                        control: false,
+                    },
+                    key: ShortcutKey::KeyK,
+                },
+            },
+        };
+
+        let json = serde_json::to_string(&persisted).expect("persisted settings should serialize");
+        assert!(json.contains("shortcut"));
+        assert!(json.contains("keyK"));
+
+        let parsed = serde_json::from_str::<PersistedSettings>(&json)
+            .expect("persisted settings should deserialize");
+        assert_eq!(parsed.local_model, persisted.local_model);
+        assert_eq!(parsed.shortcut, persisted.shortcut);
+    }
 
     struct TestAsrEngine {
         config: AsrEngineConfig,

@@ -388,7 +388,9 @@ Legend: ⬜ not started · 🟡 in progress · ✅ done · ⛔ blocked
     - R5.1: key-combination customization with conflict-safe save/rollback ✅
       (`docs/superpowers/plans/2026-06-24-r5-1-shortcut-combo-customization.md`).
     - R5.2: single modifier-key hold-to-dictate, including Right Command for
-      keyboards without Right Option, remains planned/not started.
+      keyboards without Right Option, has a reviewed implementation plan pending
+      approval/merge
+      (`docs/superpowers/plans/2026-06-24-r5-2-modifier-hold-shortcut.md`).
   - R5.1 DoD: Settings and recorder copy show the selected combo shortcut;
     failed combo registration keeps the previous working shortcut; default
     `Command + Shift + Space` behavior is preserved.

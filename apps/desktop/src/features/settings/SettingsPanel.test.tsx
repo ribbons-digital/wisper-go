@@ -282,6 +282,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: false, option: true, control: false },
         key: "keyK",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -301,6 +302,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: false, option: true, control: false },
         key: "keyK",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -320,6 +322,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: true, option: false, control: false },
         key: "space",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 
@@ -346,6 +349,7 @@ describe("SettingsPanel", () => {
             modifiers: { command: true, shift: false, option: true, control: false },
             key: "keyK",
           },
+          modifierHold: { key: "right_command", holdThresholdMs: 200 },
         },
         displayLabel: "⌘ ⌥ K",
       },
@@ -359,6 +363,7 @@ describe("SettingsPanel", () => {
         modifiers: { command: true, shift: true, option: false, control: false },
         key: "space",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
   });
 

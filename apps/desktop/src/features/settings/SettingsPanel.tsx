@@ -25,6 +25,7 @@ const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
     modifiers: { command: true, shift: true, option: false, control: false },
     key: "space",
   },
+  modifierHold: { key: "right_command", holdThresholdMs: 200 },
 };
 
 const DEFAULT_SHORTCUT_VIEW: ShortcutSettingsView = {
@@ -305,6 +306,7 @@ export function SettingsPanel({
                   },
                   key,
                 },
+                modifierHold: draftShortcutSettings.modifierHold,
               });
               setLocalShortcutError(null);
               setRecordingShortcut(false);

@@ -31,6 +31,7 @@ const defaultShortcutView = vi.hoisted(() => ({
       modifiers: { command: true, shift: true, option: false, control: false },
       key: "space",
     },
+    modifierHold: { key: "right_command", holdThresholdMs: 200 },
   },
   displayLabel: "⌘ ⇧ Space",
 }) as const);
@@ -216,9 +217,31 @@ describe("App", () => {
     await emitFloatingChromeExpanded(true);
 
     expect(screen.getByRole("region", { name: "Recorder" })).toHaveTextContent(
-      "hold ⌘ ⇧ Space",
+      "Hold ⌘ ⇧ Space to dictate",
     );
     expect(screen.queryByRole("button", { name: /dictation/i })).not.toBeInTheDocument();
+  });
+
+  it("renders loaded modifier-hold shortcut label in the recorder hint", async () => {
+    vi.mocked(shortcutSettings).mockResolvedValueOnce({
+      settings: {
+        mode: "modifier_hold",
+        combo: {
+          modifiers: { command: true, shift: true, option: false, control: false },
+          key: "space",
+        },
+        modifierHold: { key: "right_command", holdThresholdMs: 200 },
+      },
+      displayLabel: "Hold Right ⌘",
+    });
+    window.history.pushState({}, "", "/?surface=recorder");
+
+    render(<App />);
+    await emitFloatingChromeExpanded(true);
+
+    expect(await screen.findByRole("region", { name: "Recorder" })).toHaveTextContent(
+      "Hold Right ⌘ to dictate",
+    );
   });
 
   it("renders the recorder surface collapsed until native floating chrome expands", async () => {
@@ -365,6 +388,7 @@ describe("App", () => {
         modifiers: { command: true, shift: false, option: true, control: false },
         key: "keyK",
       },
+      modifierHold: { key: "right_command", holdThresholdMs: 200 },
     });
     await waitFor(() => {
       expect(screen.getAllByText("⌘ ⌥ K").length).toBeGreaterThan(0);

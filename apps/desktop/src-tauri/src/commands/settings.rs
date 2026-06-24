@@ -788,8 +788,8 @@ mod tests {
         InferenceRuntimeState, ManagedInferenceEngine,
     };
     use crate::shortcut::{
-        ModifierHoldSettings, ShortcutCombo, ShortcutKey, ShortcutMode, ShortcutModifiers,
-        ShortcutSettings,
+        ModifierHoldKey, ModifierHoldSettings, ShortcutCombo, ShortcutKey, ShortcutMode,
+        ShortcutModifiers, ShortcutSettings,
     };
     use crate::state::RecognitionLanguage;
     use wispergo_core::asset_manifest::AssetRole;
@@ -840,6 +840,29 @@ mod tests {
             .expect("persisted settings should deserialize");
         assert_eq!(parsed.local_model, persisted.local_model);
         assert_eq!(parsed.shortcut, persisted.shortcut);
+    }
+
+    #[test]
+    fn persisted_settings_round_trip_modifier_hold_shortcut() {
+        let persisted = PersistedSettings {
+            local_model: LocalModelSettings::default(),
+            shortcut: ShortcutSettings {
+                mode: ShortcutMode::ModifierHold,
+                combo: ShortcutCombo::default(),
+                modifier_hold: ModifierHoldSettings {
+                    key: ModifierHoldKey::RightCommand,
+                    hold_threshold_ms: 200,
+                },
+            },
+        };
+
+        let json = serde_json::to_string(&persisted).expect("persisted settings should serialize");
+        assert!(json.contains("modifier_hold"));
+        assert!(json.contains("right_command"));
+
+        let parsed = serde_json::from_str::<PersistedSettings>(&json)
+            .expect("persisted settings should deserialize");
+        assert_eq!(parsed.shortcut.display_label(), "Hold Right ⌘");
     }
 
     struct TestAsrEngine {

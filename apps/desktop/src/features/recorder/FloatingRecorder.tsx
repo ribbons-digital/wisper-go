@@ -10,6 +10,13 @@ type Props = {
   shortcutLabel?: string;
 };
 
+function shortcutHint(label: string) {
+  if (label.startsWith("Hold ")) {
+    return `${label} to dictate`;
+  }
+  return `Hold ${label} to dictate`;
+}
+
 export function FloatingRecorder({
   status,
   busy = false,
@@ -42,7 +49,9 @@ export function FloatingRecorder({
       <div className="recording-dot" aria-hidden="true" />
       <div className="recording-copy">
         <div className="recording-status">{setupNeeded ? "Setup needed" : busy ? "Processing" : "Ready"}</div>
-        <div className="recording-hint">{setupNeeded ? "open settings to finish" : `hold ${shortcutLabel}`}</div>
+        <div className="recording-hint">
+          {setupNeeded ? "open settings to finish" : shortcutHint(shortcutLabel)}
+        </div>
       </div>
     </section>
   );

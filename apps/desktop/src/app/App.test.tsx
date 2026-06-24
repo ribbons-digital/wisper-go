@@ -790,6 +790,31 @@ describe("App", () => {
 
     expect(screen.getByText("USB Mic")).toBeInTheDocument();
   });
+
+  it("refreshes selected microphone while settings are open so tray changes stay in sync", async () => {
+    vi.useFakeTimers();
+    vi.mocked(listMicrophones).mockResolvedValue([
+      { id: "default", name: "System Default", isDefault: true },
+      { id: "usb", name: "USB Mic", isDefault: false },
+    ]);
+    vi.mocked(selectedMicrophoneId)
+      .mockResolvedValueOnce("default")
+      .mockResolvedValueOnce("usb");
+
+    render(<App />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByDisplayValue("System Default")).toBeInTheDocument();
+
+    await act(async () => {
+      vi.advanceTimersByTime(2000);
+      await Promise.resolve();
+    });
+
+    expect(selectedMicrophoneId).toHaveBeenCalledTimes(2);
+    expect(screen.getByDisplayValue("USB Mic")).toBeInTheDocument();
+  });
 });
 
 async function emitRecordShortcut(payload: string) {

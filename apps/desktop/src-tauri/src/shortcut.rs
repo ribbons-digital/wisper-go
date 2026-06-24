@@ -537,6 +537,116 @@ pub fn shortcut_event_payload(state: ShortcutState) -> &'static str {
     }
 }
 
+pub const MODIFIER_HOLD_WATCHDOG_MS: u64 = 30_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierHoldInput {
+    SelectedModifierDown,
+    SelectedModifierUp,
+    OtherModifierJoined,
+    OtherKeyDown,
+    ThresholdElapsed { generation: u64 },
+    WatchdogElapsed { generation: u64 },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModifierHoldAction {
+    ScheduleThreshold { generation: u64, delay_ms: u64 },
+    ScheduleWatchdog { generation: u64, delay_ms: u64 },
+    EmitPressed,
+    EmitReleased,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ModifierHoldPhase {
+    Idle,
+    Pending { generation: u64 },
+    Active { generation: u64 },
+    CancelledUntilRelease,
+}
+
+#[derive(Debug)]
+pub struct ModifierHoldStateMachine {
+    settings: ModifierHoldSettings,
+    phase: ModifierHoldPhase,
+    generation: u64,
+}
+
+impl ModifierHoldStateMachine {
+    pub fn new(settings: ModifierHoldSettings) -> Self {
+        Self {
+            settings,
+            phase: ModifierHoldPhase::Idle,
+            generation: 0,
+        }
+    }
+
+    pub fn handle_event(&mut self, input: ModifierHoldInput) -> Vec<ModifierHoldAction> {
+        match (self.phase, input) {
+            (ModifierHoldPhase::Idle, ModifierHoldInput::SelectedModifierDown) => {
+                self.generation = self.generation.saturating_add(1);
+                let generation = self.generation;
+                self.phase = ModifierHoldPhase::Pending { generation };
+                vec![ModifierHoldAction::ScheduleThreshold {
+                    generation,
+                    delay_ms: self.settings.hold_threshold_ms,
+                }]
+            }
+            (ModifierHoldPhase::Pending { .. }, ModifierHoldInput::SelectedModifierUp) => {
+                self.phase = ModifierHoldPhase::Idle;
+                Vec::new()
+            }
+            (
+                ModifierHoldPhase::Pending { .. },
+                ModifierHoldInput::OtherKeyDown | ModifierHoldInput::OtherModifierJoined,
+            ) => {
+                self.phase = ModifierHoldPhase::CancelledUntilRelease;
+                Vec::new()
+            }
+            (
+                ModifierHoldPhase::Pending { generation },
+                ModifierHoldInput::ThresholdElapsed {
+                    generation: elapsed_generation,
+                },
+            ) if generation == elapsed_generation => {
+                self.phase = ModifierHoldPhase::Active { generation };
+                vec![
+                    ModifierHoldAction::EmitPressed,
+                    ModifierHoldAction::ScheduleWatchdog {
+                        generation,
+                        delay_ms: MODIFIER_HOLD_WATCHDOG_MS,
+                    },
+                ]
+            }
+            (ModifierHoldPhase::Active { .. }, ModifierHoldInput::SelectedModifierUp) => {
+                self.phase = ModifierHoldPhase::Idle;
+                vec![ModifierHoldAction::EmitReleased]
+            }
+            (
+                ModifierHoldPhase::Active { .. },
+                ModifierHoldInput::OtherKeyDown | ModifierHoldInput::OtherModifierJoined,
+            ) => {
+                self.phase = ModifierHoldPhase::CancelledUntilRelease;
+                vec![ModifierHoldAction::EmitReleased]
+            }
+            (
+                ModifierHoldPhase::Active { generation },
+                ModifierHoldInput::WatchdogElapsed {
+                    generation: elapsed_generation,
+                },
+            ) if generation == elapsed_generation => {
+                self.phase = ModifierHoldPhase::Idle;
+                vec![ModifierHoldAction::EmitReleased]
+            }
+            (ModifierHoldPhase::CancelledUntilRelease, ModifierHoldInput::SelectedModifierUp) => {
+                self.phase = ModifierHoldPhase::Idle;
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
 pub trait ShortcutRegistry {
     fn register(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
     fn unregister(&mut self, settings: &ShortcutSettings) -> Result<(), String>;
@@ -751,6 +861,167 @@ mod tests {
         .expect("deserialize unknown mode");
 
         assert_eq!(settings.normalized(), ShortcutSettings::default());
+    }
+
+    fn right_command_hold_settings() -> ModifierHoldSettings {
+        ModifierHoldSettings {
+            key: ModifierHoldKey::RightCommand,
+            hold_threshold_ms: 200,
+        }
+    }
+
+    #[test]
+    fn modifier_hold_tap_does_not_start() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierDown),
+            vec![ModifierHoldAction::ScheduleThreshold {
+                generation: 1,
+                delay_ms: 200
+            }]
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            Vec::<ModifierHoldAction>::new()
+        );
+    }
+
+    #[test]
+    fn modifier_hold_threshold_starts_and_release_stops() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierDown),
+            vec![ModifierHoldAction::ScheduleThreshold {
+                generation: 1,
+                delay_ms: 200
+            }]
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 }),
+            vec![
+                ModifierHoldAction::EmitPressed,
+                ModifierHoldAction::ScheduleWatchdog {
+                    generation: 1,
+                    delay_ms: 30_000
+                },
+            ]
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            vec![ModifierHoldAction::EmitReleased]
+        );
+    }
+
+    #[test]
+    fn modifier_hold_other_key_before_threshold_cancels_until_release() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::OtherKeyDown),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 }),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            Vec::<ModifierHoldAction>::new()
+        );
+    }
+
+    #[test]
+    fn modifier_hold_extra_modifier_before_threshold_cancels_until_release() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::OtherModifierJoined),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 }),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            Vec::<ModifierHoldAction>::new()
+        );
+    }
+
+    #[test]
+    fn modifier_hold_other_key_while_active_releases_and_cancels() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        let _ = machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 });
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::OtherKeyDown),
+            vec![ModifierHoldAction::EmitReleased]
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            Vec::<ModifierHoldAction>::new()
+        );
+    }
+
+    #[test]
+    fn modifier_hold_watchdog_releases_stuck_active_recording() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        let _ = machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 });
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::WatchdogElapsed { generation: 1 }),
+            vec![ModifierHoldAction::EmitReleased]
+        );
+    }
+
+    #[test]
+    fn modifier_hold_stays_cancelled_when_other_modifier_is_released_first() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        let _ = machine.handle_event(ModifierHoldInput::OtherModifierJoined);
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierDown),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 }),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::SelectedModifierUp),
+            Vec::<ModifierHoldAction>::new()
+        );
+    }
+
+    #[test]
+    fn modifier_hold_ignores_stale_threshold_generation() {
+        let mut machine = ModifierHoldStateMachine::new(right_command_hold_settings());
+
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierUp);
+        let _ = machine.handle_event(ModifierHoldInput::SelectedModifierDown);
+
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 1 }),
+            Vec::<ModifierHoldAction>::new()
+        );
+        assert_eq!(
+            machine.handle_event(ModifierHoldInput::ThresholdElapsed { generation: 2 }),
+            vec![
+                ModifierHoldAction::EmitPressed,
+                ModifierHoldAction::ScheduleWatchdog {
+                    generation: 2,
+                    delay_ms: 30_000
+                },
+            ]
+        );
     }
 
     #[derive(Default)]

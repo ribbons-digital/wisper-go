@@ -141,13 +141,24 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
+                if let Ok(mut active) = app_handle.state::<ActiveShortcutState>().0.lock() {
+                    if let Some(monitor) = active.modifier_monitor.take() {
+                        monitor.stop();
+                    }
+                }
                 let _ = app_handle.state::<InferenceManager>().shutdown();
             }
         });
 }
 
 #[derive(Default)]
-struct ActiveShortcutState(Mutex<Option<ShortcutSettings>>);
+struct ActiveShortcutState(Mutex<ActiveShortcutRuntime>);
+
+#[derive(Default)]
+struct ActiveShortcutRuntime {
+    settings: Option<ShortcutSettings>,
+    modifier_monitor: Option<modifier_hold::ModifierHoldMonitor>,
+}
 
 fn setup_global_shortcut_plugin(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     app.plugin(tauri_plugin_global_shortcut::Builder::new().build())?;
@@ -165,12 +176,42 @@ pub(crate) fn apply_shortcut_settings_for_app(
 ) -> Result<ShortcutSettingsView, String> {
     let active_state = app.state::<ActiveShortcutState>();
     let mut active = active_state.0.lock().map_err(|err| err.to_string())?;
-    let mut registry = TauriShortcutRegistry { app };
-    shortcut::apply_shortcut_settings(&mut registry, &mut active, settings)
+    let ActiveShortcutRuntime {
+        settings: active_settings,
+        modifier_monitor,
+    } = &mut *active;
+    let mut registry = TauriShortcutRegistry {
+        app,
+        modifier_monitor,
+    };
+    shortcut::apply_shortcut_settings(&mut registry, active_settings, settings)
+}
+
+pub(crate) fn start_saved_modifier_hold_monitor_if_needed(
+    app: &tauri::AppHandle,
+) -> Result<(), String> {
+    let active_state = app.state::<ActiveShortcutState>();
+    let mut active = active_state.0.lock().map_err(|err| err.to_string())?;
+    let Some(settings) = active.settings.clone() else {
+        return Ok(());
+    };
+    if !matches!(settings.mode, shortcut::ShortcutMode::ModifierHold) {
+        return Ok(());
+    }
+    if active.modifier_monitor.is_some() {
+        return Ok(());
+    }
+
+    let mut registry = TauriShortcutRegistry {
+        app,
+        modifier_monitor: &mut active.modifier_monitor,
+    };
+    registry.start_modifier_hold(&settings.modifier_hold)
 }
 
 struct TauriShortcutRegistry<'a> {
     app: &'a tauri::AppHandle,
+    modifier_monitor: &'a mut Option<modifier_hold::ModifierHoldMonitor>,
 }
 
 impl ShortcutRegistry for TauriShortcutRegistry<'_> {
@@ -192,15 +233,32 @@ impl ShortcutRegistry for TauriShortcutRegistry<'_> {
 
     fn start_modifier_hold(
         &mut self,
-        _settings: &shortcut::ModifierHoldSettings,
+        settings: &shortcut::ModifierHoldSettings,
     ) -> Result<(), String> {
-        Err("Modifier-hold shortcuts are not wired yet.".to_string())
+        if let Some(monitor) = self.modifier_monitor.take() {
+            monitor.stop();
+        }
+
+        // Modifier-hold preferences may be saved before Accessibility is granted.
+        // In that state the desired mode is persisted, but no monitor is active.
+        // Settings already shows the permission warning, and request_accessibility
+        // re-applies the saved shortcut after permission is granted.
+        if !crate::platform::macos::accessibility_status().granted {
+            return Ok(());
+        }
+
+        let monitor = modifier_hold::ModifierHoldMonitor::start(self.app.clone(), settings.clone())?;
+        *self.modifier_monitor = Some(monitor);
+        Ok(())
     }
 
     fn stop_modifier_hold(
         &mut self,
         _settings: &shortcut::ModifierHoldSettings,
     ) -> Result<(), String> {
+        if let Some(monitor) = self.modifier_monitor.take() {
+            monitor.stop();
+        }
         Ok(())
     }
 }

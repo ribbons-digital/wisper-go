@@ -558,8 +558,12 @@ pub fn accessibility_status() -> AccessibilityStatus {
 }
 
 #[tauri::command]
-pub fn request_accessibility() -> AccessibilityStatus {
-    macos::request_accessibility()
+pub fn request_accessibility(app: AppHandle) -> AccessibilityStatus {
+    let status = macos::request_accessibility();
+    if status.granted {
+        let _ = crate::start_saved_modifier_hold_monitor_if_needed(&app);
+    }
+    status
 }
 
 pub fn load_persisted_settings(app: &AppHandle, state: &AppState) -> Result<(), String> {
